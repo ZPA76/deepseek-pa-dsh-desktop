@@ -1,0 +1,84 @@
+{
+  "name": "deepseek-pa",
+  "productName": "DeepSeek-PA",
+  "version": "0.5.1",
+  "private": false,
+  "description": "DeepSeek-PA (DPA)：基于 DeepSeek Harness 的 Windows 桌面端。保留万物皆插件（Cordis）架构，Codex 风格界面，支持系统托盘常驻、开机自启、全局快捷键唤起。",
+  "license": "MIT",
+  "repository": { "type": "git", "url": "https://github.com/ZPA76/deepseek-pa-dsh-desktop.git" },
+  "bugs": { "url": "https://github.com/ZPA76/deepseek-pa-dsh-desktop/issues" },
+  "keywords": ["deepseek-pa", "deepseek-harness", "dsh", "ai-agents", "multi-agent-systems", "agent-orchestration", "agent-skills", "electron", "desktop-app", "local-first", "windows" ],
+  "main": "main.js",
+  "author": "PA",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/*.test.js",
+    "check": "node --check main.js && node --check preload.js && node --check dsh-updater.js && node --check cluster-store.js && node --check cluster-acp-client.js && node --check cluster-runtime.js && node --check cluster-engine.js && node --check cluster-ui.js && node --check appearance-service.js && node --check capabilities.js && node --check capability-registry.js && node --check extension-market.js && node --check github-auth.js && node --check scripts/publish-desktop.js",
+    "smoke:bridge": "electron test/cluster-bridge-smoke.js",
+    "smoke:skill": "node scripts/skill-acp-smoke.js",
+    "icons": "node scripts/make-icons.js",
+    "sync:app-src": "node scripts/sync-app-src.js",
+    "dist": "electron-builder --win --config.directories.output=dist-staging",
+    "dist:dir": "electron-builder --dir --config.directories.output=dist-staging",
+    "publish:desktop": "node scripts/publish-desktop.js",
+    "verify:dist": "node scripts/verify-dist.js"
+  },
+  "build": {
+    "appId": "com.deepseek.pa",
+    "productName": "DeepSeek-PA",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "cluster-engine.js",
+      "cluster-store.js",
+      "cluster-acp-client.js",
+      "harness-team-adapter.js",
+      "cluster-runtime.js",
+      "loading.html",
+      "shell.html",
+      "cluster.html",
+      "cluster-ui.css",
+      "cluster-ui.js",
+      "capabilities.html",
+      "capabilities.css",
+      "capabilities.js",
+      "capability-registry.js",
+      "appearance-service.js",
+      "extension-market.js",
+      "github-auth.js",
+      "codex-theme.css",
+      "icon.png",
+      "icon.ico",
+      "package.json",
+      "dpa.cordis.yml",
+      "dsh-updater.js"
+    ],
+    "extraResources": [
+      {
+        "from": "dpa.cordis.yml",
+        "to": "dpa.cordis.yml"
+      }
+    ],
+    "win": {
+      "icon": "icon.ico",
+      "target": [
+        "nsis",
+        "zip"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  },
+  "devDependencies": {
+    "electron": "^43.4.0",
+    "electron-builder": "^26.15.3"
+  }
+}

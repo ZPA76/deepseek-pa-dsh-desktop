@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'">
+  <title>DPA 集群</title>
+  <link rel="stylesheet" href="cluster-ui.css">
+</head>
+<body>
+  <div class="app">
+    <header class="module-bar">
+      <div class="module-title"><span>DPA</span> 集群</div>
+      <button class="module-tab" id="nav-employees" type="button">开发 · 员工中心</button>
+      <button class="module-tab active" id="nav-projects" type="button">应用 · 项目空间</button>
+      <div class="module-meta">发言 · 动作 · 任务 · 交付 · 审批全程留档</div>
+    </header>
+
+    <section class="view hidden" id="view-employees">
+      <main class="page">
+        <div class="page-head">
+          <div>
+            <p class="eyebrow">Employee development</p>
+            <h1>员工中心</h1>
+            <p class="subtle">配置长期身份、岗位人格、模型与能力；项目中的职务和等级在任命时单独设置。</p>
+          </div>
+          <div class="page-head-actions">
+            <label class="archived-toggle"><input type="checkbox" id="show-archived"> 显示已归档</label>
+            <button class="btn primary" id="new-employee" type="button">＋ 新建员工</button>
+          </div>
+        </div>
+        <div class="employee-grid" id="employee-grid"></div>
+
+        <section class="development-strip">
+          <p class="eyebrow">Development path</p>
+          <h2>员工培养路径</h2>
+          <div class="development-grid">
+            <article class="development-card">
+              <span class="index">01</span><h3>员工配置</h3>
+              <p>定义身份、人设、岗位边界、模型和技能标签。当前阶段已可使用。</p>
+            </article>
+            <article class="development-card">
+              <span class="index">02</span><h3>情境训练与考核</h3>
+              <p>用导师员工生成候选档案，经独立考核后再由你晋升；每次修改均可回退。</p>
+            </article>
+            <article class="development-card">
+              <span class="index">03</span><h3>模型适配</h3>
+              <p>当配置与提示工程不足时，再进入数据集、评测和微调流程，避免把所有培养都叫训练模型。</p>
+            </article>
+          </div>
+        </section>
+      </main>
+    </section>
+
+    <section class="view" id="view-projects">
+      <div class="projects-layout">
+        <aside class="project-sidebar">
+          <div class="sidebar-head">
+            <div class="sidebar-title"><h2>项目</h2><div class="sidebar-actions"><button class="btn small danger hidden" id="project-trash-empty" type="button">清空回收站</button><button class="btn small ghost" id="project-trash-toggle" type="button">回收站</button><button class="btn small icon-btn" id="new-project" type="button" title="建立项目">＋</button></div></div>
+            <p class="micro">每个项目拥有独立会议、任务、交付与审批记录。</p>
+          </div>
+          <div class="project-list" id="project-list"></div>
+        </aside>
+        <div class="column-resizer project-resizer" id="project-sidebar-resizer" role="separator" aria-orientation="vertical" aria-label="调整项目侧栏宽度" tabindex="0" title="拖动调整宽度；双击恢复默认"></div>
+
+        <main class="project-main">
+          <section class="empty-state" id="project-empty">
+            <div class="empty-orbit">◎</div>
+            <h1>建立第一个项目空间</h1>
+            <p class="subtle">选择治理策略和员工，然后像召开公司项目会议一样介绍任务。</p>
+            <button class="btn primary" id="empty-new-project" type="button">建立新项目</button>
+          </section>
+
+          <section class="wizard hidden" id="project-wizard">
+            <div class="wizard-inner">
+              <p class="eyebrow">New project</p>
+              <h1>建立项目空间</h1>
+              <p class="subtle">治理策略只改变权力、发言和执行方式，所有项目都保留计划审批与成果验收。</p>
+              <form id="project-form">
+                <section class="wizard-section">
+                  <h2>01 · 项目基本信息</h2>
+                  <div class="field-grid">
+                    <div class="field full"><label for="project-name">项目名称</label><input id="project-name" required maxlength="80" placeholder="例如：DPA 集群模块设计"></div>
+                    <div class="field full"><label for="project-goal">初始目标</label><textarea id="project-goal" required maxlength="5000" placeholder="说明希望最终得到什么；建立后还需要在项目聊天框进一步介绍具体任务。"></textarea></div>
+                    <div class="field full"><label for="project-workspace">项目工作区（可选）</label><input id="project-workspace" maxlength="500" placeholder="留空时由 DPA 创建独立工作区；只允许员工在此目录实际操作"></div>
+                  </div>
+                </section>
+
+                <section class="wizard-section">
+                  <h2>02 · 选择治理策略</h2>
+                  <div class="mode-grid">
+                    <label class="mode-option"><input type="radio" name="mode" value="hierarchy" checked><span class="mode-card"><strong>分级负责</strong><span>负责人拆解、逐级执行与汇总，适合目标明确和责任清晰的项目。</span></span></label>
+                    <label class="mode-option"><input type="radio" name="mode" value="team"><span class="mode-card"><strong>协作共创</strong><span>成员平等发言、主持人综合、任务并行，适合创意与跨职能工作。</span></span></label>
+                    <label class="mode-option"><input type="radio" name="mode" value="autonomous"><span class="mode-card"><strong>授权自治</strong><span>多轮协商、自主分工、并行推进，适合探索性任务和成熟员工团队。</span></span></label>
+                  </div>
+                </section>
+
+                <section class="wizard-section">
+                  <h2>03 · 任命项目员工</h2>
+                  <p class="subtle">员工身份来自员工中心；职务和等级只在本项目有效，等级 1 最高。</p>
+                  <div class="member-picker" id="wizard-member-list"></div>
+                </section>
+                <div class="wizard-actions">
+                  <button class="btn ghost" id="wizard-cancel" type="button">取消</button>
+                  <button class="btn primary" type="submit">建立并进入项目</button>
+                </div>
+              </form>
+            </div>
+          </section>
+
+          <section class="room hidden" id="project-room">
+            <header class="room-head">
+              <div class="room-title"><h2 id="room-name">项目</h2><p class="micro" id="room-mode"></p></div>
+              <span class="status-pill" id="room-status">未启动</span>
+              <div class="room-head-actions">
+                <button class="btn small primary" id="run-start" type="button">开始项目</button>
+                <button class="btn small hidden" id="run-pause" type="button">步骤后暂停</button>
+                <button class="btn small success hidden" id="run-resume" type="button">继续</button>
+                <button class="btn small danger hidden" id="run-cancel" type="button">取消运行</button>
+                <button class="btn small ghost" id="project-edit" type="button">编辑项目</button>
+              </div>
+            </header>
+
+            <div class="room-grid">
+              <aside class="roster">
+                <div class="side-label">项目员工<button class="btn small icon-btn" id="roster-add" type="button" title="增员 / 减员">＋</button></div>
+                <div id="roster-list"></div>
+              </aside>
+
+              <div class="column-resizer roster-resizer" id="roster-resizer" role="separator" aria-orientation="vertical" aria-label="调整员工栏宽度" tabindex="0" title="拖动调整宽度；双击恢复默认"></div>
+              <section class="conversation">
+                <div class="feed" id="feed"></div>
+                <section class="approval-dock hidden" id="approval-dock">
+                  <div class="approval-title"><strong id="approval-subject">等待审批</strong><span class="source-tag" id="approval-kind"></span></div>
+                  <div class="approval-brief" id="approval-brief"></div>
+                  <details class="approval-raw" id="approval-context-details">
+                    <summary>查看完整原文（计划 / 成果全文）</summary>
+                    <pre id="approval-context"></pre>
+                  </details>
+                  <div class="approval-actions">
+                    <input id="approval-feedback" placeholder="批准可选填；退回请写明修改意见">
+                    <button class="btn small danger" id="approval-reject" type="button">退回修改</button>
+                    <button class="btn small success" id="approval-approve" type="button">批准继续</button>
+                  </div>
+                </section>
+                <form class="composer" id="composer">
+                  <textarea id="composer-input" maxlength="12000" placeholder="介绍任务、补充要求或对正在进行的工作提出意见……"></textarea>
+                  <div class="composer-foot"><span>Enter 发送 · Shift+Enter 换行 · 发言将进入项目永久记录</span><button class="btn small primary" type="submit">发送</button></div>
+                </form>
+              </section>
+
+              <div class="column-resizer inspector-resizer" id="inspector-resizer" role="separator" aria-orientation="vertical" aria-label="调整任务与审批栏宽度" tabindex="0" title="拖动调整宽度；双击恢复默认"></div>
+              <aside class="inspector" id="inspector">
+                <div class="inspector-tabs">
+                  <button class="inspector-tab active" data-panel="tasks" type="button">任务</button>
+                  <button class="inspector-tab" data-panel="artifacts" type="button">交付</button>
+                  <button class="inspector-tab" data-panel="decisions" type="button">决策</button>
+                  <button class="inspector-tab" data-panel="actions" type="button">操作</button>
+                  <button class="inspector-tab" data-panel="metrics" type="button">遥测</button>
+                </div>
+                <div class="inspector-body" id="inspector-body"></div>
+              </aside>
+            </div>
+          </section>
+        </main>
+      </div>
+    </section>
+  </div>
+
+  <dialog id="employee-dialog">
+    <form id="employee-form">
+      <div class="dialog-head"><h2 id="employee-dialog-title">新建员工</h2><button class="btn ghost icon-btn" id="employee-close" type="button">×</button></div>
+      <div class="dialog-body">
+        <section class="employee-ai">
+          <div><strong>让员工担任设计导师</strong><p class="micro">可选择已有员工，根据岗位要求生成草案；草案仍由你确认后保存。</p></div>
+          <div class="field-grid">
+            <div class="field"><label for="employee-mentor">设计导师</label><select id="employee-mentor"><option value="">DPA 员工架构师</option></select></div>
+            <div class="field full"><label for="employee-draft-brief">岗位要求</label><textarea id="employee-draft-brief" maxlength="3000" placeholder="例如：擅长调研 GitHub 项目，所有结论附证据，不修改范围外文件。"></textarea></div>
+          </div>
+          <button class="btn small" id="employee-ai-draft" type="button">AI 起草配置</button>
+        </section>
+        <div class="field-grid">
+          <div class="field"><label for="employee-name">员工名称</label><input id="employee-name" required maxlength="60" placeholder="例如：研究分析师"></div>
+          <div class="field"><label for="employee-id">员工 ID</label><input id="employee-id" maxlength="80" pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,79}" placeholder="留空则自动生成"></div>
+          <div class="field full"><label for="employee-description">岗位说明</label><textarea id="employee-description" maxlength="1200" placeholder="负责什么、交付什么、与谁协作。"></textarea></div>
+          <div class="field full"><label for="employee-persona">身份与行为准则</label><textarea id="employee-persona" maxlength="5000" placeholder="描述专业背景、工作风格、证据标准、边界和沟通方式。"></textarea></div>
+          <div class="field"><label for="employee-provider">模型服务</label><select id="employee-provider"><option value="deepseek">DeepSeek</option><option value="glm">GLM</option></select></div>
+          <div class="field"><label for="employee-model">模型</label><input id="employee-model" maxlength="100" placeholder="留空使用服务默认模型"></div>
+          <div class="field"><label for="employee-brain">执行能力</label><select id="employee-brain"><option value="dsh-acp">Harness 工具智能体（DeepSeek）</option><option value="codex">Codex 子代理（需本机登录）</option><option value="claude-code">Claude Code 子代理（需本机登录）</option><option value="api">仅模型对话</option></select></div>
+          <div class="field"><label for="employee-skill-mode">Skill 调用</label><select id="employee-skill-mode"><option value="all">全部可用（模型按需调用）</option><option value="selected">指定优先（任务开始加载）</option><option value="none">禁用 Skill 工具</option></select></div>
+          <div class="field full skill-selection" id="employee-skill-selection">
+            <label for="employee-skill-names">指定优先 Skill（kebab-case，逗号分隔）</label>
+            <input id="employee-skill-names" maxlength="1000" placeholder="例如：github-research，code-review">
+            <div class="skill-catalog" id="employee-skill-catalog"></div>
+            <p class="micro">目录来自项目 <code>.dsh/skills</code>、<code>.agents/skills</code> 与 DPA 用户 Skill；点击已发现项可加入指定优先列表。</p>
+          </div>
+
+          <div class="field full"><label for="employee-skills">能力标签</label><input id="employee-skills" maxlength="600" placeholder="检索，写作，代码审查（逗号分隔）"></div>
+        </div>
+      </div>
+      <div class="dialog-foot"><button class="btn ghost" id="employee-cancel" type="button">取消</button><button class="btn primary" type="submit">保存配置</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="development-dialog" class="wide-dialog">
+    <div class="dialog-head"><div><h2 id="development-title">继续培养员工</h2><p class="micro" id="development-meta"></p></div><button class="btn ghost icon-btn" id="development-close" type="button">×</button></div>
+    <div class="dialog-body">
+      <section class="development-workbench">
+        <p class="card-desc">培养会先生成一个候选版本，再由独立考核员评分；不会直接覆盖当前员工。</p>
+        <div class="field-grid">
+          <div class="field"><label for="development-mentor">培养导师</label><select id="development-mentor"><option value="">DPA 培养教练</option></select></div>
+          <div class="field full"><label for="development-goal">本次培养目标</label><textarea id="development-goal" maxlength="3000" placeholder="例如：强化代码审查身份，要求每次指出证据位置、风险等级和验证办法。"></textarea></div>
+          <div class="field full"><label for="development-sample">情境任务 / 学习材料</label><textarea id="development-sample" maxlength="12000" placeholder="粘贴任务样例、标准答案、复盘记录或评价量表。"></textarea></div>
+        </div>
+        <button class="btn primary" id="development-run" type="button">生成候选并考核</button>
+        <div class="training-result hidden" id="training-result"></div>
+      </section>
+      <div class="development-history-grid">
+        <section><h3>培养记录</h3><div id="training-history"></div></section>
+        <section><h3>版本档案</h3><div id="version-history"></div></section>
+      </div>
+    </div>
+  </dialog>
+
+
+
+  <dialog id="project-edit-dialog" class="wide-dialog">
+    <form id="project-edit-form">
+      <div class="dialog-head"><div><h2>编辑项目</h2><p class="micro" id="project-edit-hint"></p></div><button class="btn ghost icon-btn" id="project-edit-close" type="button">×</button></div>
+      <div class="dialog-body">
+        <div class="field-grid">
+          <div class="field full"><label for="project-edit-name">项目名称</label><input id="project-edit-name" required maxlength="80"></div>
+          <div class="field full"><label for="project-edit-goal">项目目标与简介</label><textarea id="project-edit-goal" maxlength="5000"></textarea></div>
+          <div class="field"><label for="project-edit-mode">治理策略</label><select id="project-edit-mode"><option value="hierarchy">分级负责</option><option value="team">协作共创</option><option value="autonomous">授权自治</option></select></div>
+          <div class="field full"><label for="project-edit-workspace">项目工作区</label><input id="project-edit-workspace" maxlength="500"></div>
+        </div>
+      </div>
+      <div class="dialog-foot project-dialog-foot"><button class="btn ghost" id="project-archive" type="button">归档/恢复</button><button class="btn danger" id="project-trash" type="button">移入回收站</button><span class="dialog-spacer"></span><button class="btn ghost" id="project-edit-cancel" type="button">取消</button><button class="btn primary" type="submit">保存修改</button></div>
+    </form>
+  </dialog>
+  <dialog id="member-dialog">
+    <div class="dialog-head"><h2>调整项目员工</h2><button class="btn ghost icon-btn" id="member-close" type="button">×</button></div>
+    <div class="dialog-body">
+      <div class="field-grid">
+        <div class="field full"><label for="member-agent">新增员工</label><select id="member-agent"></select></div>
+        <div class="field"><label for="member-role">项目职务</label><input id="member-role" maxlength="60" placeholder="例如：数据分析师"></div>
+        <div class="field"><label for="member-rank">等级（1 最高）</label><input id="member-rank" type="number" min="1" max="99" value="9"></div>
+        <div class="field"><label for="member-permission">调用权限</label><select id="member-permission"><option value="ask">请求批准</option><option value="auto">帮我批准</option><option value="full">完全访问</option></select></div>
+        <div class="field"><label for="member-brain">执行能力</label><select id="member-brain"><option value="dsh-acp">Harness 工具智能体</option><option value="codex">Codex 子代理</option><option value="claude-code">Claude Code 子代理</option><option value="api">仅模型对话</option></select></div>
+      </div>
+    </div>
+    <div class="dialog-foot"><button class="btn ghost" id="member-cancel" type="button">取消</button><button class="btn primary" id="member-add" type="button">加入项目</button></div>
+  </dialog>
+
+  <dialog id="detail-dialog">
+    <div class="dialog-head"><h2 id="detail-title">详情</h2><button class="btn ghost icon-btn" id="detail-close" type="button">×</button></div>
+    <div class="dialog-body"><div class="detail-content" id="detail-content"></div></div>
+  </dialog>
+
+  <div class="toast hidden" id="toast"></div>
+  <script src="cluster-ui.js"></script>
+</body>
+</html>

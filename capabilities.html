@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DPA 扩展中心</title>
+  <link rel="stylesheet" href="capabilities.css">
+</head>
+<body>
+  <main class="page">
+    <header class="hero">
+      <div>
+        <div class="eyebrow">DPA EXTENSION CENTER</div>
+        <h1>扩展中心</h1>
+        <p>统一管理插件、Skill、主题和能力包。安装动作经过来源确认、profile 快照和失败回滚。</p>
+      </div>
+      <div class="hero-actions">
+        <button class="account" id="github-account" type="button">GitHub：正在检查…</button>
+        <div class="runtime" id="runtime-summary">正在读取运行时…</div>
+      </div>
+    </header>
+
+    <nav class="tabs" aria-label="扩展中心页面">
+      <button class="tab active" data-view="market">发现</button>
+      <button class="tab" data-view="installed">已安装</button>
+      <button class="tab" data-view="appearance">主题与显示</button>
+      <button class="tab" data-view="recovery">更新与恢复</button>
+    </nav>
+
+    <section class="view" id="view-market">
+      <div class="market-toolbar">
+        <div class="search-box">
+          <input class="search" id="market-search" placeholder="搜索插件、Skill、主题或作者">
+          <button class="btn primary" id="market-search-button" type="button">搜索 GitHub</button>
+        </div>
+        <div class="filters" id="market-filters">
+          <button class="chip active" data-kind="all">全部</button>
+          <button class="chip" data-kind="plugin">插件</button>
+          <button class="chip" data-kind="skill">Skill</button>
+          <button class="chip" data-kind="theme">主题</button>
+          <button class="chip" data-kind="mcp">MCP</button>
+        </div>
+      </div>
+      <div class="notice" id="market-notice">先展示经过整理的推荐项目；输入关键词后再查询 GitHub，避免无意义地频繁请求。</div>
+      <div class="extension-grid" id="extension-grid"></div>
+    </section>
+
+    <section class="view hidden" id="view-installed">
+      <div class="section-head">
+        <div><h2>已安装能力</h2><p>插件由 DSH web profile 管理；Skill 由 DPA 管理目录与 Harness 注册表共同发现。</p></div>
+        <button class="btn" id="refresh-installed" type="button">刷新</button>
+      </div>
+      <h3>Harness 插件</h3>
+      <div class="installed-list" id="plugin-list"></div>
+      <h3>Skill</h3>
+      <div class="extension-grid" id="skill-grid"></div>
+    </section>
+
+    <section class="view hidden" id="view-appearance">
+      <div class="section-head">
+        <div><h2>全局主题</h2><p>作用于 DPA 外壳、集群、扩展中心和本地 Harness 页面；远程 DeepSeek 网页保持网站原生样式。</p></div>
+        <button class="btn" id="reset-theme" type="button">恢复深夜蓝</button>
+      </div>
+      <div class="theme-grid" id="theme-grid"></div>
+
+      <section class="appearance-panel" aria-labelledby="typography-heading">
+        <div class="section-head compact">
+          <div><h2 id="typography-heading">字体与缩放</h2><p>独立于主题，作用于整个 DPA。缺少的字体会自动回退到中文系统字体。</p></div>
+          <button class="btn" id="reset-typography" type="button">恢复字体默认值</button>
+        </div>
+        <div class="typography-grid">
+          <label>界面字体<select id="ui-font"><option value="system">系统默认（推荐）</option><option value="yahei">微软雅黑 UI</option><option value="dengxian">等线</option><option value="noto">Noto Sans CJK SC</option><option value="sourceHan">思源黑体</option><option value="serif">中文衬线体</option></select></label>
+          <label>附加自定义字体<input id="custom-font" maxlength="100" placeholder="例如：HarmonyOS Sans SC"></label>
+          <label>代码与轨迹字体<select id="mono-font"><option value="cascadia">Cascadia Mono</option><option value="consolas">Consolas</option><option value="jetbrains">JetBrains Mono</option></select></label>
+          <label>聊天字体<select id="chat-font"><option value="inherit">跟随界面字体</option><option value="system">系统中文 UI</option><option value="yahei">微软雅黑 UI</option><option value="dengxian">等线</option><option value="noto">Noto Sans CJK SC</option><option value="sourceHan">思源黑体</option></select></label>
+          <label>界面字号<input id="font-size" type="number" min="12" max="22" step="1"><span class="field-hint">12–22 px</span></label>
+          <label>聊天字号<input id="chat-font-size" type="number" min="13" max="22" step="1"><span class="field-hint">13–22 px</span></label>
+          <label>行高<input id="line-height" type="number" min="1.25" max="1.9" step="0.05"></label>
+          <label>整体缩放<input id="ui-zoom" type="number" min="80" max="200" step="5"><span class="field-hint">80%–200%</span></label>
+          <label>Ctrl+滚轮<select id="ctrl-wheel"><option value="zoom">调整整体缩放</option><option value="font">调整字体大小</option><option value="off">关闭</option></select></label>
+        </div>
+        <div class="font-preview" id="font-preview"><strong>字体预览：DeepSeek-PA 智能体协作</strong><span>项目会议、工具轨迹与审批记录 0123456789</span><code>cache hit · tool.call · npm run check</code></div>
+        <div class="appearance-actions"><button class="btn primary" id="save-typography" type="button">保存并全局应用</button><span class="muted" id="font-availability"></span></div>
+      </section>
+
+      <section class="appearance-panel" aria-labelledby="background-heading">
+        <div class="section-head compact">
+          <div><h2 id="background-heading">图片背景</h2><p>只替换 DPA 背景，不改变主题配色、字体或组件布局。图片会复制到 DPA 受管数据目录。</p></div>
+          <button class="btn danger" id="remove-background" type="button">移除背景</button>
+        </div>
+        <div class="background-layout">
+          <div class="background-preview" id="background-preview"><span>尚未设置图片背景</span></div>
+          <div class="background-controls">
+            <label class="toggle-label"><input id="background-enabled" type="checkbox">启用图片背景</label>
+            <label>填充方式<select id="background-fit"><option value="cover">覆盖窗口</option><option value="contain">完整显示</option><option value="auto">原始大小</option><option value="repeat">平铺</option></select></label>
+            <label>位置<select id="background-position"><option value="center">居中</option><option value="top">顶部</option><option value="bottom">底部</option><option value="left">左侧</option><option value="right">右侧</option></select></label>
+            <label>图片可见度<input id="background-opacity" type="range" min="0.05" max="1" step="0.05"><span class="field-hint" id="background-opacity-value"></span></label>
+            <label>模糊<input id="background-blur" type="range" min="0" max="24" step="1"><span class="field-hint" id="background-blur-value"></span></label>
+            <label>主题遮罩<input id="background-overlay" type="range" min="0" max="0.9" step="0.05"><span class="field-hint" id="background-overlay-value"></span></label>
+          </div>
+        </div>
+        <div class="appearance-actions"><button class="btn primary" id="choose-background" type="button">选择图片</button><button class="btn" id="save-background" type="button">保存背景设置</button><span class="muted">支持 PNG、JPG、WEBP、BMP、GIF，最大 8 MB。</span></div>
+      </section>
+
+      <details class="editor-panel" id="theme-editor-panel">
+        <summary>创建或修改自定义主题</summary>
+        <div class="theme-editor">
+          <label>主题 ID<input id="theme-id" value="my-theme" pattern="[a-z0-9._-]+"></label>
+          <label>显示名称<input id="theme-label" value="我的主题"></label>
+          <label>说明<input id="theme-description" value="DPA 自定义主题"></label>
+          <label>模式<select id="theme-scheme"><option value="dark">深色</option><option value="light">浅色</option></select></label>
+          <div class="token-editor" id="token-editor"></div>
+          <div class="editor-actions">
+            <button class="btn primary" id="save-theme" type="button">保存并应用</button>
+            <button class="btn" id="preview-theme" type="button">临时预览</button>
+            <button class="btn" id="copy-theme-json" type="button">复制主题 JSON</button>
+          </div>
+        </div>
+      </details>
+
+      <details class="editor-panel">
+        <summary>导入主题并转换到 DPA</summary>
+        <p class="muted">支持 DPA 原生 JSON、DSH <code>ThemeDefinition</code> 和 VS Code 颜色主题。DSH/VS Code 主题会转换成 DPA 全局令牌并保存，不只停留在 Harness 页面。</p>
+        <textarea id="theme-import-json" rows="9" spellcheck="false" placeholder='粘贴 DPA、DSH 或 VS Code 主题 JSON'></textarea>
+        <div class="appearance-actions"><button class="btn primary" id="import-theme-json" type="button">校验、转换并全局应用</button><button class="btn" id="import-theme-file" type="button">选择 JSON 文件</button><span class="muted" id="theme-import-result"></span></div>
+      </details>
+    </section>
+
+    <section class="view hidden" id="view-recovery">
+      <div class="section-head">
+        <div><h2>更新与恢复</h2><p>每次插件安装、更新或卸载前都会保存 web profile 快照；失败时自动恢复。</p></div>
+        <button class="btn" id="refresh-backups" type="button">刷新备份</button>
+      </div>
+      <div class="notice warning">恢复备份会替换当前 DSH web profile，需要重启 Harness。DPA 不会自动删除这些恢复点。</div>
+      <div class="installed-list" id="backup-list"></div>
+    </section>
+  </main>
+
+  <dialog id="operation-dialog">
+    <form method="dialog" class="dialog-card">
+      <div class="dialog-head"><h2 id="dialog-title">扩展操作</h2><button class="icon-button" value="cancel" aria-label="关闭">×</button></div>
+      <div id="dialog-content"></div>
+      <menu><button class="btn" value="cancel">关闭</button><button class="btn primary" id="dialog-confirm" value="default">确认</button></menu>
+    </form>
+  </dialog>
+  <div class="toast" id="toast" role="status"></div>
+  <script src="capabilities.js"></script>
+</body>
+</html>

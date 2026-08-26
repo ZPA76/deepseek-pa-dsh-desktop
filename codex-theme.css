@@ -1,0 +1,150 @@
+/* =========================================================================
+   Codex 风格主题 — DeepSeek Harness
+   通过覆盖 dsh 的 CSS token (--dsw-*) 与少量组件级规则，
+   把整体观感对齐到 OpenAI Codex 桌面端（中性克制、留白多、圆角、柔和）。
+   不改 dsh 核心代码；通过 Electron 壳注入到 dsh web 页面。
+   ========================================================================= */
+
+/* —— 字体：OpenAI 风格的 system font stack —— */
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display',
+    'SF Pro Text', 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif !important;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  letter-spacing: -0.005em;
+}
+
+/* —— 浅色主题 token 覆盖 —— */
+body {
+  /* 强调色：从 DeepSeek 蓝 → 中性黑灰（Codex 强调色克制） */
+  --dsw-alias-button-info-fill: #1f2024;
+  --dsw-alias-button-info-hover: #2c2d32;
+  --dsw-alias-label-primary-bluish: #1f2024;
+
+  /* 边框更柔和 */
+  --dsw-alias-border-l1: rgba(0, 0, 0, 0.05);
+  --dsw-alias-border-l2: rgba(0, 0, 0, 0.08);
+  --dsw-alias-border-l3: rgba(0, 0, 0, 0.10);
+
+  /* 悬停态更轻 */
+  --dsw-alias-interactive-bg-hover: rgba(0, 0, 0, 0.04);
+  --dsw-alias-interactive-bg-hover-accent: rgba(0, 0, 0, 0.06);
+  --dsw-alias-interactive-bg-active: rgba(0, 0, 0, 0.06);
+
+  /* 背景分层：纯白 + 极淡灰 */
+  --dsw-alias-bg-base: #ffffff;
+  --dsw-alias-bg-layer-1: #ffffff;
+  --dsw-alias-bg-layer-2: #fafafa;
+  --dsw-alias-bg-layer-3: #f4f4f5;
+  --dsw-alias-bg-overlay: #f4f4f5;
+
+  /* 文字层级 */
+  --dsw-alias-label-primary: #1f2024;
+  --dsw-alias-label-secondary: #4a4b50;
+  --dsw-alias-label-tertiary: #6c6d72;
+  --dsw-alias-label-caption: #8e8f94;
+  --dsw-alias-label-dimmed: #d4d5d8;
+}
+
+/* —— 深色主题 token 覆盖（Codex 深色也是克制的深灰） —— */
+body[data-ds-dark-theme] {
+  --dsw-alias-button-info-fill: #ececec;
+  --dsw-alias-button-info-hover: #ffffff;
+  --dsw-alias-label-primary-bluish: #ececec;
+
+  --dsw-alias-border-l1: rgba(255, 255, 255, 0.06);
+  --dsw-alias-border-l2: rgba(255, 255, 255, 0.10);
+  --dsw-alias-border-l3: rgba(255, 255, 255, 0.14);
+
+  --dsw-alias-interactive-bg-hover: rgba(255, 255, 255, 0.06);
+  --dsw-alias-interactive-bg-active: rgba(255, 255, 255, 0.08);
+
+  --dsw-alias-bg-base: #1a1a1d;
+  --dsw-alias-bg-layer-1: #1a1a1d;
+  --dsw-alias-bg-layer-2: #202022;
+  --dsw-alias-bg-layer-3: #26272a;
+  --dsw-alias-bg-overlay: #202022;
+
+  --dsw-alias-label-primary: #ececec;
+  --dsw-alias-label-secondary: #c4c5c8;
+  --dsw-alias-label-tertiary: #9ea0a3;
+  --dsw-alias-label-caption: #76787b;
+}
+
+/* —— 圆角：Codex 风格偏大（按钮、卡片、输入框） —— */
+/* 这些类名是 dsh composer/sidebar 的常见形态，作为兜底覆盖 */
+[class*="composer"], [class*="Composer"],
+[class*="sidebar"], [class*="Sidebar"] {
+  --dsw-alias-border-radius-l1: 10px;
+  --dsw-alias-border-radius-l2: 12px;
+  --dsw-alias-border-radius-l3: 14px;
+}
+
+/* —— 发送按钮：黑底白字圆点（Codex 标志性圆形发送） —— */
+button[aria-label*="发送" i], button[aria-label*="send" i],
+button[aria-label*="Send" i], button[aria-label*="submit" i] {
+  background: #1f2024 !important;
+  color: #ffffff !important;
+  border: none !important;
+}
+body[data-ds-dark-theme] button[aria-label*="发送" i],
+body[data-ds-dark-theme] button[aria-label*="send" i],
+body[data-ds-dark-theme] button[aria-label*="Send" i] {
+  background: #ececec !important;
+  color: #1a1a1d !important;
+}
+
+/* —— 「新会话」按钮：Codex 风格细边框 + 轻填充 —— */
+button:has(svg) + button, /* 兜底 */
+[class*="NewSession"], button[aria-label*="新会话" i] {
+  /* 由 token 驱动，这里留位 */
+}
+
+/* —— 整体节奏：更紧凑的边框、更细的分割线 —— */
+hr, [class*="divider" i], [class*="Divider"] {
+  border-color: rgba(0, 0, 0, 0.06) !important;
+}
+body[data-ds-dark-theme] hr,
+body[data-ds-dark-theme] [class*="divider" i],
+body[data-ds-dark-theme] [class*="Divider"] {
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+/* —— 输入框 placeholder 颜色更柔和 —— */
+textarea::placeholder, input::placeholder {
+  color: #8e8f94 !important;
+  opacity: 1;
+}
+
+/* —— 选中态：Codex 用淡灰而非蓝色 —— */
+::selection {
+  background: rgba(0, 0, 0, 0.08);
+  color: inherit;
+}
+body[data-ds-dark-theme] ::selection {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+/* —— 滚动条更纤细（Codex 风格） —— */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: 4px;
+}
+body[data-ds-dark-theme] ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.30);
+}
+body[data-ds-dark-theme] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.30);
+}
+
+/* —— 顶部 logo 区：去掉彩色，让 HARNESS 标签更克制 —— */
+[aria-label*="HARNESS" i], [class*="wordmark" i] {
+  letter-spacing: 0.04em;
+}

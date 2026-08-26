@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>DeepSeek-PA</title>
+  <style>
+    :root {
+      --shell-bg:#141417; --shell-panel:#1d1f23; --shell-panel-2:#24262b; --shell-text:#ececec;
+      --shell-muted:#9ea0a3; --shell-accent:#5b9bff; --shell-accent-strong:#3f78f2;
+      --shell-line:rgba(255,255,255,.12); --shell-hover:#292b31; --shell-active:#32353c;
+      --shell-danger:#ff7474;
+      --ui-font-family:"Segoe UI Variable Text","Microsoft YaHei UI","Segoe UI",sans-serif;
+      --ui-font-size:14px; --ui-line-height:1.5; color-scheme:dark;
+      --wallpaper-image:none; --wallpaper-size:cover; --wallpaper-position:center; --wallpaper-repeat:no-repeat; --wallpaper-opacity:.28; --wallpaper-blur:0px; --wallpaper-overlay:.42;
+    }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    html,body { height:100%; }
+    body { display:flex; flex-direction:column; font:var(--ui-font-size)/var(--ui-line-height) var(--ui-font-family); background:var(--shell-bg); color:var(--shell-text); overflow:hidden; }
+    body::before,body::after { content:""; position:fixed; inset:-24px; pointer-events:none; display:none; }
+    body::before { z-index:0; background-image:var(--wallpaper-image); background-size:var(--wallpaper-size); background-position:var(--wallpaper-position); background-repeat:var(--wallpaper-repeat); opacity:var(--wallpaper-opacity); filter:blur(var(--wallpaper-blur)); }
+    body::after { z-index:0; background:var(--shell-bg); opacity:var(--wallpaper-overlay); }
+    html[data-dpa-wallpaper="true"] body::before,html[data-dpa-wallpaper="true"] body::after { display:block; }
+    body > * { position:relative; z-index:1; }
+    .topbar { height:44px; flex:0 0 44px; display:flex; align-items:center; gap:6px; padding:0 14px; background:var(--shell-panel); border-bottom:1px solid var(--shell-line); user-select:none; }
+    .brand { color:var(--shell-text); font-size:14px; font-weight:650; letter-spacing:.02em; margin-right:12px; display:flex; align-items:center; gap:6px; }
+    .brand svg { width:18px; height:18px; }
+    .brand-mark { fill:var(--shell-accent); }
+    .tab { padding:6px 16px; border-radius:8px; cursor:pointer; color:var(--shell-muted); font-size:13px; transition:background .15s,color .15s; }
+    .tab:hover { background:var(--shell-hover); color:var(--shell-text); }
+    .tab.active { background:var(--shell-active); color:var(--shell-text); }
+    .spacer { flex:1; }
+    .update-button { border:1px solid var(--shell-line); border-radius:8px; padding:5px 10px; background:var(--shell-panel-2); color:var(--shell-muted); font-size:12px; cursor:pointer; }
+    .update-button:hover { color:var(--shell-text); border-color:var(--shell-accent); }
+    .update-button.available { color:#fff; background:var(--shell-accent-strong); border-color:var(--shell-accent); }
+    .update-button.error { color:var(--shell-danger); border-color:var(--shell-danger); }
+    .update-button:disabled { cursor:wait; opacity:.72; }
+    .content { flex:1; position:relative; background:var(--shell-bg); }
+    webview,iframe { position:absolute; inset:0; border:0; width:100%; height:100%; background:var(--shell-bg); }
+    .hidden { display:none; }
+    @media (prefers-reduced-motion:reduce) { * { transition:none !important; } }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="brand"><svg viewBox="0 0 24 24"><path class="brand-mark" d="M4 12c0-1.5 1.2-2 3.2-2.4C8.4 6.2 10 4 12 4c2 0 3.6 2.2 4.8 5.6C18.8 10 20 10.5 20 12s-1.2 2-3.2 2.4C15.6 17.8 14 20 12 20s-3.6-2.2-4.8-5.6C5.2 14 4 13.5 4 12Z"/></svg>DeepSeek-PA</div>
+    <div class="tab active" id="tab-agent" data-mode="agent">Agent</div>
+    <div class="tab" id="tab-chat" data-mode="chat">Chat</div>
+    <div class="tab" id="tab-cluster" data-mode="cluster">集群</div>
+    <div class="tab" id="tab-capabilities" data-mode="capabilities">扩展中心</div>
+    <div class="spacer"></div>
+    <button class="update-button" id="dsh-update" type="button">DSH 检查更新</button>
+  </div>
+  <div class="content">
+    <webview id="view" src="http://127.0.0.1:3080/"></webview>
+    <iframe id="cluster" class="hidden" src="cluster.html"></iframe>
+    <iframe id="capabilities" class="hidden" src="capabilities.html"></iframe>
+  </div>
+
+  <script>
+    const view = document.getElementById('view')
+    const clusterFrame = document.getElementById('cluster')
+    const capabilitiesFrame = document.getElementById('capabilities')
+    const AGENT_URL = 'http://127.0.0.1:3080/'
+    const CHAT_URL = 'https://chat.deepseek.com/'
+    let currentTheme = null
+    let currentAppearance = null
+    let dshThemeCssKey = null
+
+    function switchTo(mode) {
+      const localFrame = mode === 'cluster' || mode === 'capabilities'
+      for (const name of ['agent','chat','cluster','capabilities']) document.getElementById(`tab-${name}`).classList.toggle('active', mode === name)
+      if (localFrame) {
+        view.classList.add('hidden')
+        clusterFrame.classList.toggle('hidden', mode !== 'cluster')
+        capabilitiesFrame.classList.toggle('hidden', mode !== 'capabilities')
+        return
+      }
+      clusterFrame.classList.add('hidden'); capabilitiesFrame.classList.add('hidden'); view.classList.remove('hidden')
+      const target = mode === 'agent' ? AGENT_URL : CHAT_URL
+      if (view.getURL() !== target) view.loadURL(target).catch(() => {})
+    }
+    for (const name of ['agent','chat','cluster','capabilities']) document.getElementById(`tab-${name}`).addEventListener('click', () => switchTo(name))
+
+    function injectCodex(attempt) {
+      try {
+        const url = view.getURL() || ''
+        if (!url.startsWith('http://127.0.0.1')) return
+        if (window.__codexCSS) { view.insertCSS(window.__codexCSS).catch(() => {}); return }
+        if (attempt < 20) setTimeout(() => injectCodex(attempt + 1), 300)
+      } catch (_) {}
+    }
+
+    function dshThemeCss(theme, typography = {}, background = {}) {
+      const dsh = theme.dshTokens || {}
+      const declarations = Object.entries(dsh).map(([name,value]) => `${name}:${value}`).join(';')
+      const scheme = theme.colorScheme === 'light' ? 'light' : 'dark'
+      const family = typography.fontFamily || '"Segoe UI Variable Text","Microsoft YaHei UI","Segoe UI",sans-serif'
+      const size = Number(typography.fontSize || 14)
+      const lineHeight = Number(typography.lineHeight || 1.5)
+      const enabled = Boolean(background.enabled && background.dataUrl)
+      const fit = background.fit === 'repeat' ? 'auto' : (background.fit || 'cover')
+      const repeat = background.fit === 'repeat' ? 'repeat' : 'no-repeat'
+      const image = enabled ? `linear-gradient(color-mix(in srgb,var(--dsw-alias-bg-base) ${Math.round(Number(background.overlay || 0) * 100)}%,transparent),color-mix(in srgb,var(--dsw-alias-bg-base) ${Math.round(Number(background.overlay || 0) * 100)}%,transparent)),url("${background.dataUrl}")` : 'none'
+      return `:root,body{${declarations};color-scheme:${scheme}!important}body{background-color:var(--dsw-alias-bg-base)!important;background-image:${image}!important;background-size:${fit}!important;background-position:${background.position || 'center'}!important;background-repeat:${repeat}!important;color:var(--dsw-alias-label-primary)!important;font-family:${family}!important;font-size:${size}px!important;line-height:${lineHeight}!important}`
+    }
+
+    async function injectThemeToHarness(theme) {
+      try {
+        if (!(view.getURL() || '').startsWith('http://127.0.0.1')) return
+        if (dshThemeCssKey) await view.removeInsertedCSS(dshThemeCssKey).catch(() => {})
+        dshThemeCssKey = await view.insertCSS(dshThemeCss(theme, currentAppearance && currentAppearance.typography, currentAppearance && currentAppearance.background))
+      } catch (_) {}
+    }
+
+    view.addEventListener('dom-ready', () => { injectCodex(0); if (currentTheme) injectThemeToHarness(currentTheme) })
+
+    const clusterAPI = window.harnessDesktop && window.harnessDesktop.cluster
+    if (clusterAPI) {
+      window.addEventListener('message', async (event) => {
+        const data = event.data || {}
+        if (event.source !== clusterFrame.contentWindow || data.type !== 'cluster:request') return
+        try { clusterFrame.contentWindow.postMessage({ type:'cluster:response', id:data.id, result:await clusterAPI.request(data.method, data.payload) }, '*') }
+        catch (error) { clusterFrame.contentWindow.postMessage({ type:'cluster:response', id:data.id, error:String(error && error.message || error) }, '*') }
+      })
+      clusterAPI.onEvent((event) => { try { clusterFrame.contentWindow.postMessage({ type:'cluster:event', payload:event }, '*') } catch (_) {} })
+    }
+
+    const capabilityAPI = window.harnessDesktop && window.harnessDesktop.capability
+    function applyDpaAppearance(appearance) {
+      if (!appearance || !appearance.theme) return
+      currentAppearance = appearance
+      currentTheme = appearance.theme
+      const theme = appearance.theme
+      const typography = appearance.typography || {}
+      const tokens = theme.tokens || {}
+      const mapping = { background:'--shell-bg', panel:'--shell-panel', panel2:'--shell-panel-2', text:'--shell-text', muted:'--shell-muted', accent:'--shell-accent', accentStrong:'--shell-accent-strong', line:'--shell-line', hover:'--shell-hover', active:'--shell-active', danger:'--shell-danger' }
+      document.documentElement.dataset.dpaTheme = theme.id || 'midnight'
+      document.documentElement.style.colorScheme = theme.colorScheme || 'dark'
+      for (const [key, variable] of Object.entries(mapping)) if (tokens[key]) document.documentElement.style.setProperty(variable, tokens[key])
+      document.documentElement.style.setProperty('--ui-font-family', typography.fontFamily || '"Segoe UI Variable Text","Microsoft YaHei UI","Segoe UI",sans-serif')
+      document.documentElement.style.setProperty('--ui-font-size', String(typography.fontSize || 14) + 'px')
+      document.documentElement.style.setProperty('--ui-line-height', String(typography.lineHeight || 1.5))
+      const background = appearance.background || {}
+      const wallpaperEnabled = Boolean(background.enabled && background.dataUrl)
+      document.documentElement.dataset.dpaWallpaper = wallpaperEnabled ? 'true' : 'false'
+      document.documentElement.style.setProperty('--wallpaper-image', wallpaperEnabled ? `url("${background.dataUrl}")` : 'none')
+      document.documentElement.style.setProperty('--wallpaper-size', background.fit === 'repeat' ? 'auto' : (background.fit || 'cover'))
+      document.documentElement.style.setProperty('--wallpaper-repeat', background.fit === 'repeat' ? 'repeat' : 'no-repeat')
+      document.documentElement.style.setProperty('--wallpaper-position', background.position || 'center')
+      document.documentElement.style.setProperty('--wallpaper-opacity', String(background.opacity == null ? .28 : background.opacity))
+      document.documentElement.style.setProperty('--wallpaper-blur', String(background.blur || 0) + 'px')
+      document.documentElement.style.setProperty('--wallpaper-overlay', String(background.overlay == null ? .42 : background.overlay))
+      try { view.setZoomFactor(Math.min(2, Math.max(.8, Number(typography.zoom || 100) / 100))) } catch (_) {}
+      try { clusterFrame.contentWindow.postMessage({ type:'capability:appearance', appearance }, '*') } catch (_) {}
+      try { capabilitiesFrame.contentWindow.postMessage({ type:'capability:appearance', appearance }, '*') } catch (_) {}
+      injectThemeToHarness(theme)
+    }
+
+    function applyDpaTheme(theme) {
+      const base = currentAppearance || { typography:{} }
+      applyDpaAppearance({ ...base, theme })
+    }
+
+    async function stepAppearance(direction) {
+      if (!capabilityAPI || !currentAppearance) return
+      const typography = currentAppearance.typography || {}
+      if (typography.ctrlWheel === 'off') return
+      const payload = typography.ctrlWheel === 'font'
+        ? { fontSize:Math.min(22, Math.max(12, Number(typography.fontSize || 14) + direction)) }
+        : { zoom:Math.min(200, Math.max(80, Number(typography.zoom || 100) + direction * 5)) }
+      const appearance = await capabilityAPI.request('setTypography', payload)
+      applyDpaAppearance(appearance)
+    }
+
+    window.addEventListener('message', async (event) => {
+      const data = event.data || {}
+      if (event.source === capabilitiesFrame.contentWindow && data.type === 'capability:request' && capabilityAPI) {
+        try { capabilitiesFrame.contentWindow.postMessage({ type:'capability:response', id:data.id, result:await capabilityAPI.request(data.method, data.payload) }, '*') }
+        catch (error) { capabilitiesFrame.contentWindow.postMessage({ type:'capability:response', id:data.id, error:String(error && error.message || error) }, '*') }
+      }
+      if (event.source === capabilitiesFrame.contentWindow && data.type === 'capability:theme' && data.theme) applyDpaTheme(data.theme)
+      if (event.source === capabilitiesFrame.contentWindow && data.type === 'capability:appearance' && data.appearance) applyDpaAppearance(data.appearance)
+      if ((event.source === capabilitiesFrame.contentWindow || event.source === clusterFrame.contentWindow) && data.type === 'capability:zoom-step') stepAppearance(Number(data.direction) < 0 ? -1 : 1).catch(() => {})
+      if ((event.source === capabilitiesFrame.contentWindow || event.source === clusterFrame.contentWindow) && data.type === 'capability:appearance-request' && currentAppearance) event.source.postMessage({ type:'capability:appearance', appearance:currentAppearance }, '*')
+    })
+    if (capabilityAPI) capabilityAPI.request('themeState').then(applyDpaAppearance).catch(() => {})
+
+    const updateButton = document.getElementById('dsh-update')
+    const updateAPI = window.harnessDesktop && window.harnessDesktop.update
+    function renderUpdateState(state) {
+      if (!state || !updateButton) return
+      updateButton.classList.toggle('available', state.status === 'available')
+      updateButton.classList.toggle('error', state.status === 'error' || state.status === 'server-error')
+      updateButton.disabled = state.status === 'checking' || state.status === 'installing'
+      if (state.status === 'checking') updateButton.textContent = '正在检查 DSH…'
+      else if (state.status === 'installing') updateButton.textContent = state.message || '正在更新 DSH…'
+      else if (state.status === 'available') updateButton.textContent = `可更新至 ${state.latestVersion}`
+      else if (['complete','current','idle'].includes(state.status)) updateButton.textContent = `DSH ${state.currentVersion || state.version || ''}`
+      else if (state.status === 'error' || state.status === 'server-error') updateButton.textContent = 'DSH 更新异常'
+    }
+    if (updateAPI) {
+      updateButton.addEventListener('click', () => updateAPI.check().catch(() => {}))
+      updateAPI.status().then(renderUpdateState).catch(() => {})
+      updateAPI.onState(renderUpdateState)
+    } else updateButton.hidden = true
+  </script>
+</body>
+</html>
