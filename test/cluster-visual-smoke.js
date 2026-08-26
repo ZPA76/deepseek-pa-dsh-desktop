@@ -1,15 +1,18 @@
 'use strict'
 
 const { app, BrowserWindow } = require('electron')
+const fs = require('fs')
 const os = require('os')
 const path = require('path')
 const { BUILTIN_THEMES, DEFAULT_TYPOGRAPHY, typographyCss } = require('../appearance-service.js')
 
+const temporaryData = fs.mkdtempSync(path.join(os.tmpdir(), 'dpa-visual-demo-'))
+app.setPath('userData', temporaryData)
 app.disableHardwareAcceleration()
 
 app.whenReady().then(async () => {
   const window = new BrowserWindow({
-    width: 1440,
+    width: 1680,
     height: 900,
     show: false,
     backgroundColor: '#111214',
@@ -57,6 +60,9 @@ app.whenReady().then(async () => {
     state.overview = { project: state.current, ...${JSON.stringify(sample.overview)} };
     state.events = ${JSON.stringify(sample.events)};
     state.runState = { running: true, paused: false, runId: 'visual-run' };
+    setLayoutWidth('projectSidebar', 240, false);
+    setLayoutWidth('roster', 360, false);
+    setLayoutWidth('inspector', 300, false);
     renderProjects(); renderRoom(); showProjectPane('project-room');
   `)
   const requestedTheme = String(process.env.DPA_VISUAL_THEME || '')
@@ -69,20 +75,24 @@ app.whenReady().then(async () => {
   await new Promise((resolve) => setTimeout(resolve, 300))
   const image = await window.webContents.capturePage()
   const output = process.env.DPA_VISUAL_OUTPUT || path.join(os.tmpdir(), 'dpa-cluster-room.png')
-  require('fs').writeFileSync(output, image.toPNG())
+  fs.writeFileSync(output, image.toPNG())
   await window.webContents.executeJavaScript('setView("employees"); renderEmployees();')
   window.showInactive()
   await new Promise((resolve) => setTimeout(resolve, 250))
   const employeeImage = await window.webContents.capturePage()
   const employeeOutput = path.join(path.dirname(output), `${path.basename(output, path.extname(output))}-employees${path.extname(output)}`)
-  require('fs').writeFileSync(employeeOutput, employeeImage.toPNG())
+  fs.writeFileSync(employeeOutput, employeeImage.toPNG())
   await window.webContents.executeJavaScript('setView("projects"); openWizard();')
   await new Promise((resolve) => setTimeout(resolve, 180))
   const wizardImage = await window.webContents.capturePage()
   const wizardOutput = path.join(path.dirname(output), `${path.basename(output, path.extname(output))}-wizard${path.extname(output)}`)
-  require('fs').writeFileSync(wizardOutput, wizardImage.toPNG())
+  fs.writeFileSync(wizardOutput, wizardImage.toPNG())
   console.log(output)
   console.log(employeeOutput)
   console.log(wizardOutput)
   app.quit()
+})
+
+app.on('quit', () => {
+  try { fs.rmSync(temporaryData, { recursive: true, force: true }) } catch (_) {}
 })
