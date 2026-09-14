@@ -19,8 +19,27 @@ const MONO_STACKS = {
   jetbrains:'"JetBrains Mono","Cascadia Mono",Consolas,monospace',
 }
 const TYPOGRAPHY_DEFAULTS = { uiFont:'system', customFont:'', monoFont:'cascadia', fontSize:14, lineHeight:1.5, zoom:100, ctrlWheel:'zoom', chatFont:'inherit', chatFontSize:15 }
+const LOCAL_FILE_TARGET_ORIGIN = 'file://'
+const LOCAL_FILE_EVENT_ORIGIN = 'null'
+const SHELL_URL = new URL('shell.html', window.location.href).href
 const state = { appearance:null, skills:[], plugins:[], extensions:[], backups:[], github:null, kind:'all', view:'market', busy:false }
 state.market = { page:1, perPage:30, source:'github', sort:'best-match', query:'deepseek-harness', signature:'', requestId:0, loading:false, result:null }
+
+function isTrustedShellMessage(event) {
+  if (event.origin !== LOCAL_FILE_EVENT_ORIGIN || event.source !== window.parent || window.parent === window) return false
+  try { return window.parent.location.href === SHELL_URL }
+  catch (_) { return false }
+}
+
+function postToShell(message) {
+  if (window.parent === window) return false
+  try {
+    if (window.parent.location.href !== SHELL_URL) return false
+    window.parent.postMessage(message, LOCAL_FILE_TARGET_ORIGIN)
+    return true
+  } catch (_) { return false }
+}
+
 const api = {
   request(method, payload) {
     return new Promise((resolve, reject) => {
@@ -28,16 +47,18 @@ const api = {
       const timer = setTimeout(() => { window.removeEventListener('message', listener); reject(new Error('扩展中心请求超时')) }, 120000)
       const listener = (event) => {
         const data = event.data || {}
-        if (event.source !== window.parent || data.type !== 'capability:response' || data.id !== id) return
+        if (!isTrustedShellMessage(event) || data.type !== 'capability:response' || data.id !== id) return
         clearTimeout(timer); window.removeEventListener('message', listener)
         if (data.error) reject(new Error(data.error)); else resolve(data.result)
       }
       window.addEventListener('message', listener)
-      window.parent.postMessage({ type:'capability:request', id, method, payload:payload || {} }, '*')
+      if (!postToShell({ type:'capability:request', id, method, payload:payload || {} })) {
+        clearTimeout(timer); window.removeEventListener('message', listener); reject(new Error('DPA 本地能力桥接不可用'))
+      }
     })
   },
-  theme(theme) { window.parent.postMessage({ type:'capability:theme', theme }, '*') },
-  appearance(appearance) { window.parent.postMessage({ type:'capability:appearance', appearance }, '*') },
+  theme(theme) { postToShell({ type:'capability:theme', theme }) },
+  appearance(appearance) { postToShell({ type:'capability:appearance', appearance }) },
 }
 const byId = (id) => document.getElementById(id)
 const esc = (value) => String(value == null ? '' : value).replace(/[&<>"']/g, (char) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[char]))
@@ -468,11 +489,11 @@ byId('reset-typography').addEventListener('click', () => saveTypography(TYPOGRAP
 window.addEventListener('wheel', (event) => {
   if (!event.ctrlKey || !state.appearance || state.appearance.typography.ctrlWheel === 'off') return
   event.preventDefault()
-  window.parent.postMessage({ type:'capability:zoom-step', direction:event.deltaY < 0 ? 1 : -1 }, '*')
+  postToShell({ type:'capability:zoom-step', direction:event.deltaY < 0 ? 1 : -1 })
 }, { passive:false })
 window.addEventListener('message', (event) => {
   const data = event.data || {}
-  if (event.source !== window.parent) return
+  if (!isTrustedShellMessage(event)) return
   if (data.type === 'capability:theme' && data.theme) applyTheme(data.theme, false)
   if (data.type === 'capability:appearance' && data.appearance) { applyAppearance(data.appearance, false); fillTypography(data.appearance.typography); fillBackground(data.appearance.background) }
 })

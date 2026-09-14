@@ -24,6 +24,9 @@ const state = {
 
 const MAX_RENDERED_EVENTS = 2000
 const MAX_RENDERED_STREAMS = 16
+const LOCAL_FILE_TARGET_ORIGIN = 'file://'
+const LOCAL_FILE_EVENT_ORIGIN = 'null'
+const SHELL_URL = new URL('shell.html', window.location.href).href
 
 const MODE = {
   hierarchy: { name: '分级负责', short: '负责人决策 · 逐级执行' },
@@ -50,6 +53,21 @@ function clear(element) {
   while (element.firstChild) element.removeChild(element.firstChild)
 }
 
+function isTrustedShellMessage(event) {
+  if (event.origin !== LOCAL_FILE_EVENT_ORIGIN || event.source !== window.parent || window.parent === window) return false
+  try { return window.parent.location.href === SHELL_URL }
+  catch (_) { return false }
+}
+
+function postToShell(message) {
+  if (window.parent === window) return false
+  try {
+    if (window.parent.location.href !== SHELL_URL) return false
+    window.parent.postMessage(message, LOCAL_FILE_TARGET_ORIGIN)
+    return true
+  } catch (_) { return false }
+}
+
 function request(method, payload = {}, timeout = 45000) {
   const id = `cluster-${Date.now()}-${++state.requestId}`
   return new Promise((resolve, reject) => {
@@ -58,7 +76,11 @@ function request(method, payload = {}, timeout = 45000) {
       reject(new Error(`操作超时：${method}`))
     }, timeout)
     state.pending.set(id, { resolve, reject, timer })
-    window.parent.postMessage({ type: 'cluster:request', id, method, payload }, '*')
+    if (!postToShell({ type: 'cluster:request', id, method, payload })) {
+      clearTimeout(timer)
+      state.pending.delete(id)
+      reject(new Error('DPA 本地集群桥接不可用'))
+    }
   })
 }
 
@@ -1577,7 +1599,7 @@ function applyClusterAppearance(appearance) {
 }
 
 function handleWindowMessage(event) {
-  if (event.source !== window.parent) return
+  if (!isTrustedShellMessage(event)) return
   const data = event.data || {}
   if (data.type === 'capability:appearance' && data.appearance) { applyClusterAppearance(data.appearance); return }
   if (data.type === 'capability:theme' && data.theme) { applyClusterTheme(data.theme); return }
@@ -1597,9 +1619,9 @@ function attachEvents() {
     const typography = state.appearance && state.appearance.typography
     if (!event.ctrlKey || !typography || typography.ctrlWheel === 'off') return
     event.preventDefault()
-    window.parent.postMessage({ type:'capability:zoom-step', direction:event.deltaY < 0 ? 1 : -1 }, '*')
+    postToShell({ type:'capability:zoom-step', direction:event.deltaY < 0 ? 1 : -1 })
   }, { passive:false })
-  window.parent.postMessage({ type:'capability:appearance-request' }, '*')
+  postToShell({ type:'capability:appearance-request' })
   byId('nav-employees').addEventListener('click', () => setView('employees'))
   byId('nav-projects').addEventListener('click', () => setView('projects'))
   byId('new-employee').addEventListener('click', () => openEmployeeDialog())

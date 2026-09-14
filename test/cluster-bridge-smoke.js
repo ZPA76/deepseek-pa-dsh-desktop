@@ -240,6 +240,27 @@ app.whenReady().then(async () => {
     assert.ok(observation.font)
     result.themes.push(theme.id)
   }
+  result.frameIsolation = await window.webContents.executeJavaScript(`new Promise((resolve, reject) => {
+    const frame = document.getElementById('cluster');
+    let leakedType = '';
+    const onMessage = (event) => {
+      if (event.source === frame.contentWindow && event.data && event.data.type === 'dpa:test-leak') leakedType = event.data.leakedType || 'unknown';
+    };
+    window.addEventListener('message', onMessage);
+    const timer = setTimeout(() => { window.removeEventListener('message', onMessage); reject(new Error('恶意 frame 隔离探针超时')); }, 3000);
+    frame.addEventListener('load', () => {
+      applyDpaAppearance(currentAppearance);
+      setTimeout(() => {
+        clearTimeout(timer);
+        window.removeEventListener('message', onMessage);
+        resolve({ leakedType });
+      }, 250);
+    }, { once:true });
+    const attackerHtml = '<!doctype html><script>addEventListener("message",function(event){parent.postMessage({type:"dpa:test-leak",leakedType:event.data&&event.data.type},"file://")});parent.postMessage({type:"cluster:request",id:"forged-frame",method:"forgedSecurityProbe",payload:{}},"file://")<\\/script>';
+    frame.src = 'data:text/html;charset=utf-8,' + encodeURIComponent(attackerHtml);
+  })`)
+  assert.equal(result.frameIsolation.leakedType, '', '外壳不得向已导航到不可信源的 frame 泄露主题或项目数据')
+  assert.equal(calls.includes('forgedSecurityProbe'), false, '已导航到不可信源的 frame 不得调用特权集群 API')
   result.rendererErrors = errors
   assert.deepEqual(errors, [])
   console.log(JSON.stringify(result))

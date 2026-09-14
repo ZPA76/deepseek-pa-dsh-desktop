@@ -2,9 +2,9 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-[下载 Windows 版](https://github.com/ZPA76/deepseek-pa-dsh-desktop/releases) · [安装指南](docs/INSTALL-WINDOWS.md) · [0.6.0 更新说明](docs/RELEASE_NOTES-v0.6.0.md) · [反馈问题](https://github.com/ZPA76/deepseek-pa-dsh-desktop/issues)
+[下载 Windows 版](https://github.com/ZPA76/deepseek-pa-dsh-desktop/releases) · [安装指南](docs/INSTALL-WINDOWS.md) · [0.6.1 更新说明](docs/RELEASE_NOTES-v0.6.1.md) · [反馈问题](https://github.com/ZPA76/deepseek-pa-dsh-desktop/issues)
 
-开发者预览版 **0.6.0** · Windows x64 · 已测试 **DSH 0.1.5-rc.2**
+开发者预览版 **0.6.1** · Windows x64 · 已测试 **DSH 0.1.5-rc.2**
 
 **基于 DeepSeek Harness（DSH）构建的非官方模块化 Windows 桌面工作台。**
 
@@ -18,7 +18,11 @@ DeepSeek-PA 将本地 DeepSeek Harness 运行时整合为一个连贯、可定�
 
 > 截图均使用虚构项目和演示员工。扩展发现截图中的 **75 项仓库是合成分页测试数据**，不代表真实 GitHub 搜索结果或推荐目录。图片不包含个人账号、真实项目、本机路径或凭据。
 
-## 0.6.0 更新内容
+## 0.6.1 更新内容
+
+0.6.1 取代 0.6.0，并完整包含上一版的扩展发现、项目启动与界面改进。本安全版本将较短的 SHA-1 派生操作标识升级为更长的 SHA-256 派生标识，并加固本地 iframe 消息桥：移除通配目标，校验预期父窗口/子 frame 来源及精确本地 URL，同时用恶意 frame 回归验证已导航到不可信内容的 frame 无法调用特权 API，也收不到 DPA 外观或项目数据。
+
+## 包含 0.6.0 的功能改进
 
 - 扩展发现直接使用公开可见的 GitHub 查询，支持排序、翻页、跳页和每页 30 / 60 / 100 项；DPA 推荐与 GitHub 全站是独立来源。
 - 兼容新版 DSH 凭据和 ACP 启动入口；开始项目前检查配置，启动失败持续显示原因并可重试，避免重复点击造成并发启动。
@@ -55,7 +59,7 @@ DPA 不只是给 DSH 套一个桌面壳，“集群”也只是产品优势之�
 
 可用关键词以及 `user:`、`topic:`、`language:` 等条件搜索 GitHub 仓库，选择来源、排序和每页数量，也可打开同条件的 GitHub 页面。公开仓库可直接匿名浏览，无需配置账号。
 
-0.6.0 的账号登录属于可选开发者配置：需要用户自行注册 GitHub OAuth App、启用 Device Flow、设置 `DPA_GITHUB_CLIENT_ID`，然后重启 DPA。当前授权请求包含 `read:user` 与 `repo` scope；其中 `repo` 明显宽于公开浏览，并可能授予私有仓库访问能力。请在 GitHub 授权页核对权限，不需要该能力时保持匿名即可。详见 [Windows 安装指南](docs/INSTALL-WINDOWS.md#可选github-账号登录)。
+0.6.1 的账号登录仍属于可选开发者配置：需要用户自行注册 GitHub OAuth App、启用 Device Flow、设置 `DPA_GITHUB_CLIENT_ID`，然后重启 DPA。当前授权请求包含 `read:user` 与 `repo` scope；其中 `repo` 明显宽于公开浏览，并可能授予私有仓库访问能力。请在 GitHub 授权页核对权限，不需要该能力时保持匿名即可。详见 [Windows 安装指南](docs/INSTALL-WINDOWS.md#可选github-账号登录)。
 
 ![DPA 扩展中心](docs/images/dpa-extension-center.png)
 
@@ -113,15 +117,15 @@ DPA 使用原子快照、追加式项目事件、有限前端缓存、幂等更�
 
 ## 当前状态
 
-DPA 目前处于积极开发的预览阶段，源码版本为 `0.6.0`，本轮已测试的上游版本为 `DSH 0.1.5-rc.2`。不代表其他 DSH 版本已经验证兼容。
+DPA 目前处于积极开发的预览阶段，源码版本为 `0.6.1`，本轮已测试的上游版本为 `DSH 0.1.5-rc.2`。不代表其他 DSH 版本已经验证兼容。
 
 当前重点包括 DSH 版本兼容、安全更新、扩展发现、员工培养、项目治理、全局外观以及长时间高负载运行下的稳定性。
 
-0.6.0 本地验收包含 **98 项回归测试**、六种主题的打包桌面交互、真实 GitHub 分页请求和一次最小真实 ACP 模型请求。没有据此声称完成多日压力测试或所有真实项目的完整交付，详见[公开验收摘要](docs/VALIDATION-v0.6.0.md)。
+0.6.1 本地验收完成 **100/100 项回归测试**，其中包含操作标识和恶意 frame 安全回归，并继承 0.6.0 的打包桌面、GitHub 分页及 ACP 检查。没有据此声称完成多日压力测试或所有真实项目的完整交付，详见[公开验收摘要](docs/VALIDATION-v0.6.1.md)。
 
 ## 下载与安装
 
-进入 [GitHub Releases](https://github.com/ZPA76/deepseek-pa-dsh-desktop/releases)，选择需要的预览版本，下载 Windows 安装版 `.exe` 或便携版 `.zip`。核对文件名中的版本，并使用 `SHA256SUMS.txt` 校验。如果页面尚无 0.6.0 安装文件，说明该版本尚未公开发布，可按下方步骤从源码运行。
+进入 [GitHub Releases](https://github.com/ZPA76/deepseek-pa-dsh-desktop/releases)，选择需要的预览版本，下载 Windows 安装版 `.exe` 或便携版 `.zip`。核对文件名中的版本，并使用 `SHA256SUMS.txt` 校验。如果页面尚无 0.6.1 安装文件，说明该版本尚未公开发布，可按下方步骤从源码运行。
 
 [Windows 安装指南](docs/INSTALL-WINDOWS.md)包含 DSH 准备、凭据目录、首次启动、更新和常见错误。本预览版没有商业代码签名，Windows 可能提示“未知发布者”。
 

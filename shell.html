@@ -66,6 +66,10 @@
     const view = document.getElementById('view')
     const clusterFrame = document.getElementById('cluster')
     const capabilitiesFrame = document.getElementById('capabilities')
+    const LOCAL_FILE_TARGET_ORIGIN = 'file://'
+    const LOCAL_FILE_EVENT_ORIGIN = 'null'
+    const CLUSTER_FRAME_URL = new URL('cluster.html', window.location.href).href
+    const CAPABILITIES_FRAME_URL = new URL('capabilities.html', window.location.href).href
     const LOCAL_AGENT_URL = 'http://127.0.0.1:3080/'
     const CHAT_URL = 'https://chat.deepseek.com/'
     let agentUrl = LOCAL_AGENT_URL
@@ -77,6 +81,21 @@
     const webviewReadyPromise = new Promise((resolve) => {
       view.addEventListener('dom-ready', () => { webviewReady = true; resolve() }, { once:true })
     })
+
+    function isExpectedLocalFrame(frame, expectedUrl) {
+      try { return frame.contentWindow.location.href === expectedUrl }
+      catch (_) { return false }
+    }
+
+    function isTrustedLocalFrameMessage(event, frame, expectedUrl) {
+      return event.origin === LOCAL_FILE_EVENT_ORIGIN && event.source === frame.contentWindow && isExpectedLocalFrame(frame, expectedUrl)
+    }
+
+    function postToLocalFrame(frame, expectedUrl, message) {
+      if (!isExpectedLocalFrame(frame, expectedUrl)) return false
+      try { frame.contentWindow.postMessage(message, LOCAL_FILE_TARGET_ORIGIN); return true }
+      catch (_) { return false }
+    }
 
     function normalizeLocalAgentUrl(value) {
       try {
@@ -177,11 +196,11 @@
     if (clusterAPI) {
       window.addEventListener('message', async (event) => {
         const data = event.data || {}
-        if (event.source !== clusterFrame.contentWindow || data.type !== 'cluster:request') return
-        try { clusterFrame.contentWindow.postMessage({ type:'cluster:response', id:data.id, result:await clusterAPI.request(data.method, data.payload) }, '*') }
-        catch (error) { clusterFrame.contentWindow.postMessage({ type:'cluster:response', id:data.id, error:String(error && error.message || error) }, '*') }
+        if (!isTrustedLocalFrameMessage(event, clusterFrame, CLUSTER_FRAME_URL) || data.type !== 'cluster:request') return
+        try { postToLocalFrame(clusterFrame, CLUSTER_FRAME_URL, { type:'cluster:response', id:data.id, result:await clusterAPI.request(data.method, data.payload) }) }
+        catch (error) { postToLocalFrame(clusterFrame, CLUSTER_FRAME_URL, { type:'cluster:response', id:data.id, error:String(error && error.message || error) }) }
       })
-      clusterAPI.onEvent((event) => { try { clusterFrame.contentWindow.postMessage({ type:'cluster:event', payload:event }, '*') } catch (_) {} })
+      clusterAPI.onEvent((event) => { postToLocalFrame(clusterFrame, CLUSTER_FRAME_URL, { type:'cluster:event', payload:event }) })
     }
 
     const capabilityAPI = window.harnessDesktop && window.harnessDesktop.capability
@@ -210,8 +229,8 @@
       document.documentElement.style.setProperty('--wallpaper-blur', String(background.blur || 0) + 'px')
       document.documentElement.style.setProperty('--wallpaper-overlay', String(background.overlay == null ? .42 : background.overlay))
       try { view.setZoomFactor(Math.min(2, Math.max(.8, Number(typography.zoom || 100) / 100))) } catch (_) {}
-      try { clusterFrame.contentWindow.postMessage({ type:'capability:appearance', appearance }, '*') } catch (_) {}
-      try { capabilitiesFrame.contentWindow.postMessage({ type:'capability:appearance', appearance }, '*') } catch (_) {}
+      postToLocalFrame(clusterFrame, CLUSTER_FRAME_URL, { type:'capability:appearance', appearance })
+      postToLocalFrame(capabilitiesFrame, CAPABILITIES_FRAME_URL, { type:'capability:appearance', appearance })
       injectThemeToHarness(theme)
     }
 
@@ -233,14 +252,19 @@
 
     window.addEventListener('message', async (event) => {
       const data = event.data || {}
-      if (event.source === capabilitiesFrame.contentWindow && data.type === 'capability:request' && capabilityAPI) {
-        try { capabilitiesFrame.contentWindow.postMessage({ type:'capability:response', id:data.id, result:await capabilityAPI.request(data.method, data.payload) }, '*') }
-        catch (error) { capabilitiesFrame.contentWindow.postMessage({ type:'capability:response', id:data.id, error:String(error && error.message || error) }, '*') }
+      const fromCapabilities = isTrustedLocalFrameMessage(event, capabilitiesFrame, CAPABILITIES_FRAME_URL)
+      const fromCluster = isTrustedLocalFrameMessage(event, clusterFrame, CLUSTER_FRAME_URL)
+      if (!fromCapabilities && !fromCluster) return
+      if (fromCapabilities && data.type === 'capability:request' && capabilityAPI) {
+        try { postToLocalFrame(capabilitiesFrame, CAPABILITIES_FRAME_URL, { type:'capability:response', id:data.id, result:await capabilityAPI.request(data.method, data.payload) }) }
+        catch (error) { postToLocalFrame(capabilitiesFrame, CAPABILITIES_FRAME_URL, { type:'capability:response', id:data.id, error:String(error && error.message || error) }) }
       }
-      if (event.source === capabilitiesFrame.contentWindow && data.type === 'capability:theme' && data.theme) applyDpaTheme(data.theme)
-      if (event.source === capabilitiesFrame.contentWindow && data.type === 'capability:appearance' && data.appearance) applyDpaAppearance(data.appearance)
-      if ((event.source === capabilitiesFrame.contentWindow || event.source === clusterFrame.contentWindow) && data.type === 'capability:zoom-step') stepAppearance(Number(data.direction) < 0 ? -1 : 1).catch(() => {})
-      if ((event.source === capabilitiesFrame.contentWindow || event.source === clusterFrame.contentWindow) && data.type === 'capability:appearance-request' && currentAppearance) event.source.postMessage({ type:'capability:appearance', appearance:currentAppearance }, '*')
+      if (fromCapabilities && data.type === 'capability:theme' && data.theme) applyDpaTheme(data.theme)
+      if (fromCapabilities && data.type === 'capability:appearance' && data.appearance) applyDpaAppearance(data.appearance)
+      if (data.type === 'capability:zoom-step') stepAppearance(Number(data.direction) < 0 ? -1 : 1).catch(() => {})
+      if (data.type === 'capability:appearance-request' && currentAppearance) {
+        postToLocalFrame(fromCapabilities ? capabilitiesFrame : clusterFrame, fromCapabilities ? CAPABILITIES_FRAME_URL : CLUSTER_FRAME_URL, { type:'capability:appearance', appearance:currentAppearance })
+      }
     })
     if (capabilityAPI) capabilityAPI.request('themeState').then(applyDpaAppearance).catch(() => {})
 

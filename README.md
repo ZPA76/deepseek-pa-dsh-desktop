@@ -2,9 +2,9 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-[Windows downloads](https://github.com/ZPA76/deepseek-pa-dsh-desktop/releases) · [Installation guide](docs/INSTALL-WINDOWS.md) · [0.6.0 release notes](docs/RELEASE_NOTES-v0.6.0.md) · [Report an issue](https://github.com/ZPA76/deepseek-pa-dsh-desktop/issues)
+[Windows downloads](https://github.com/ZPA76/deepseek-pa-dsh-desktop/releases) · [Installation guide](docs/INSTALL-WINDOWS.md) · [0.6.1 release notes](docs/RELEASE_NOTES-v0.6.1.md) · [Report an issue](https://github.com/ZPA76/deepseek-pa-dsh-desktop/issues)
 
-Developer preview **0.6.0** · Windows x64 · Tested with **DSH 0.1.5-rc.2**
+Developer preview **0.6.1** · Windows x64 · Tested with **DSH 0.1.5-rc.2**
 
 **An unofficial modular desktop workspace for DeepSeek Harness (DSH).**
 
@@ -18,7 +18,11 @@ DeepSeek-PA turns the local DeepSeek Harness ecosystem into a cohesive Windows d
 
 > Screenshots use synthetic demo projects and fictional employee profiles. The discovery screenshot uses **75 simulated repositories** to demonstrate pagination; it is not a live search result or an endorsement of those entries. No personal account, production project, machine path, or credential data is shown.
 
-## New in 0.6.0
+## New in 0.6.1
+
+0.6.1 supersedes 0.6.0 and includes all of its discovery, project-startup and workspace improvements. This security release replaces short SHA-1-derived action identifiers with longer SHA-256-derived identifiers and hardens local iframe messaging: wildcard targets are removed, expected parent/frame sources and exact local URLs are checked, and a malicious-frame regression verifies that a navigated frame cannot invoke privileged APIs or receive DPA appearance/project data.
+
+## Included from 0.6.0
 
 - GitHub repository search with visible queries, sorting, page navigation, and 30 / 60 / 100 results per page. DPA's curated list is a separate source.
 - Updated DSH credential and ACP startup compatibility; project startup checks, persistent failure feedback, duplicate-click prevention, and retry.
@@ -55,7 +59,7 @@ DPA is more than a desktop wrapper and the Cluster module is only one part of th
 
 Search GitHub repositories using keywords or qualifiers such as `user:`, `topic:` and `language:`. Choose a source, sort order and page size, or open the same search on GitHub. Anonymous public browsing works without account configuration.
 
-Account sign-in is an opt-in developer setup in 0.6.0: register your own GitHub OAuth App, enable Device Flow, set `DPA_GITHUB_CLIENT_ID`, then restart DPA. The current authorization request uses the `read:user` and `repo` scopes. The `repo` scope is broader than public browsing and can grant access to private repositories; review GitHub's consent page and stay anonymous if you do not need that access. See the [Windows installation guide](docs/INSTALL-WINDOWS.md#optional-github-account-sign-in).
+Account sign-in remains an opt-in developer setup in 0.6.1: register your own GitHub OAuth App, enable Device Flow, set `DPA_GITHUB_CLIENT_ID`, then restart DPA. The current authorization request uses the `read:user` and `repo` scopes. The `repo` scope is broader than public browsing and can grant access to private repositories; review GitHub's consent page and stay anonymous if you do not need that access. See the [Windows installation guide](docs/INSTALL-WINDOWS.md#optional-github-account-sign-in).
 
 ![DPA Extension Center](docs/images/dpa-extension-center.png)
 
@@ -105,15 +109,15 @@ Do not commit `DSH_HOME`, `.credentials.yaml`, user project data, logs, caches, 
 
 ## Status
 
-DPA is an active developer preview. The current source version is `0.6.0`; the tested upstream version is `DSH 0.1.5-rc.2`. Other DSH releases are not implicitly certified compatible.
+DPA is an active developer preview. The current source version is `0.6.1`; the tested upstream version is `DSH 0.1.5-rc.2`. Other DSH releases are not implicitly certified compatible.
 
 Current focus areas include DSH compatibility, safe updates, richer extension discovery, employee development, project governance, global appearance, and stability under long-running workloads.
 
-The local 0.6.0 validation included **98 regression tests**, packaged desktop interaction tests across six themes, real GitHub pagination requests, and a minimal real ACP model request. These are not a claim of multi-day stress testing or successful delivery of every real project. Read the [public validation summary](docs/VALIDATION-v0.6.0.md).
+The local 0.6.1 validation completed **100/100 regression tests**, including the action-ID and malicious-frame security regressions, together with the inherited packaged desktop, GitHub pagination and ACP checks from 0.6.0. These are not a claim of multi-day stress testing or successful delivery of every real project. Read the [public validation summary](docs/VALIDATION-v0.6.1.md).
 
 ## Download and install
 
-Open [GitHub Releases](https://github.com/ZPA76/deepseek-pa-dsh-desktop/releases), choose the desired developer preview and download its Windows setup `.exe` or portable `.zip`. Match the version in the filename and check `SHA256SUMS.txt`. If 0.6.0 assets are not listed yet, they have not been publicly published; source instructions below remain available.
+Open [GitHub Releases](https://github.com/ZPA76/deepseek-pa-dsh-desktop/releases), choose the desired developer preview and download its Windows setup `.exe` or portable `.zip`. Match the version in the filename and check `SHA256SUMS.txt`. If 0.6.1 assets are not listed yet, they have not been publicly published; source instructions below remain available.
 
 The [installation guide](docs/INSTALL-WINDOWS.md) explains DSH setup, the shared credential directory, first launch, updates and troubleshooting. This preview is not commercially code-signed; Windows may display an unknown-publisher warning.
 

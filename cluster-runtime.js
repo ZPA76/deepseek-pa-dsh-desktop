@@ -891,7 +891,7 @@ function assessTaskRisk(value) {
 }
 
 function actionId(value) {
-  return crypto.createHash('sha1').update(String(value)).digest('hex').slice(0, 16)
+  return crypto.createHash('sha256').update(String(value)).digest('hex').slice(0, 24)
 }
 
 function outsideProjectWorkspace(params, workspace) {
@@ -1461,6 +1461,7 @@ module.exports = {
   assessTaskRisk,
   outsideProjectWorkspace,
   hasPermissionDetails,
+  actionId,
   deleteAgent,
   draftAgent,
   listAgentVersions,

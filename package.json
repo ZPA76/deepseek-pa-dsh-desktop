@@ -1,7 +1,7 @@
 {
   "name": "deepseek-pa",
   "productName": "DeepSeek-PA",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "private": true,
   "description": "DeepSeek-PA (DPA)：基于 DeepSeek Harness 的 Windows 桌面端。保留万物皆插件（Cordis）架构，Codex 风格界面，支持系统托盘常驻、开机自启、全局快捷键唤起。",
   "license": "MIT",
