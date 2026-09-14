@@ -3,21 +3,47 @@
 const fs = require('fs')
 const path = require('path')
 const { spawn } = require('child_process')
+const { parseEnv } = require('node:util')
+const { parseDocument } = require('yaml')
 
-function loadCredentialEnv(homeDir) {
+function loadCredentialEnv(homeDir, invocationDir = '') {
   const file = path.join(String(homeDir || ''), '.credentials.yaml')
-  if (!fs.existsSync(file)) return {}
-  let text = ''
-  try { text = fs.readFileSync(file, 'utf8') } catch (_) { return {} }
+  const allowed = /^(?:DEEPSEEK_API_KEY|ZHIPU_API_KEY|DEEPSEEK_BASE_URL)$/
+  const select = (source) => Object.fromEntries(Object.entries(source || {})
+    .filter(([key, value]) => allowed.test(key) && typeof value === 'string' && value.trim()))
   const values = {}
-  for (const line of text.split(/\r?\n/)) {
-    const match = line.match(/^\s*(DEEPSEEK_API_KEY)\s*:\s*(.*?)\s*$/)
-    if (!match) continue
-    let value = match[2]
-    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) value = value.slice(1, -1)
-    if (value) values[match[1]] = value
+  for (const directory of [homeDir, invocationDir].filter(Boolean)) {
+    const dotenv = path.join(directory, '.env')
+    if (fs.existsSync(dotenv)) Object.assign(values, select(parseEnv(fs.readFileSync(dotenv, 'utf8'))))
   }
+  if (!fs.existsSync(file)) return values
+  const document = parseDocument(fs.readFileSync(file, 'utf8'), { uniqueKeys: true })
+  // YAML parse messages contain source lines, and must never include credential values.
+  if (document.errors.length) throw new Error('DSH 凭据文件格式错误，请在 Agent 设置中重新保存模型凭据')
+  const root = document.toJS() || {}
+  if (Array.isArray(root) || typeof root !== 'object') throw new Error('DSH 凭据文件必须是键值映射')
+  if (root.version != null && root.version !== 1) throw new Error('DSH 凭据版本暂不支持，请检查 DPA 与 DSH 版本兼容性')
+  Object.assign(values, select(root.version === 1 ? root.refs : root))
   return values
+}
+
+function resolveAcpLaunch(options) {
+  const harnessDir = path.resolve(options.harnessDir)
+  const sourceBin = path.join(harnessDir, 'apps', 'cli', 'src', 'bin.ts')
+  const builtBin = path.join(harnessDir, 'apps', 'cli', 'lib', 'bin.js')
+  let sourceLoaderAvailable = false
+  try { sourceLoaderAvailable = Boolean(require.resolve('tsx/esm', { paths: [harnessDir] })) } catch (_) { /* Built distributions need no TypeScript loader. */ }
+  // A source checkout may contain partial/stale lib outputs. Its official loader
+  // resolves workspace imports from source; a complete artifact uses plain Node.
+  const modern = fs.existsSync(sourceBin) && sourceLoaderAvailable ? sourceBin : (fs.existsSync(builtBin) ? builtBin : '')
+  const legacy = path.join(harnessDir, 'packages', 'examples', 'acp-demo', 'src', 'bin.ts')
+  const filename = modern ? 'dpa-acp.patch.yml' : 'dpa.cordis.yml'
+  const config = [options.configPath, process.resourcesPath && path.join(process.resourcesPath, filename), path.join(__dirname, filename)]
+    .filter(Boolean).find(fs.existsSync)
+  if (!config || (!modern && !fs.existsSync(legacy))) throw new Error('DSH 执行入口不完整，请先在更新设置中修复 DSH 运行环境')
+  const bin = modern || legacy
+  const loader = bin.endsWith('.ts') ? ['--import', modern ? 'tsx/esm' : 'tsx'] : []
+  return { modern: Boolean(modern), args: [...loader, bin, ...(modern ? ['--profile', 'acp', '--patch', config] : ['--config', config])], cwd: harnessDir }
 }
 
 const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000
@@ -29,6 +55,7 @@ function bounded(value, limit = 4000) {
 
 function redactSensitive(value) {
   return String(value == null ? '' : value)
+    .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+/gi, '$1 ***')
     .replace(/\bsk-[A-Za-z0-9_-]{8,}\b/g, 'sk-***')
     .replace(/((?:api[_-]?key|authorization|access[_-]?token|password|secret)["']?\s*[:=]\s*["']?)[^\s"',}]+/gi, '$1***')
 }
@@ -74,16 +101,16 @@ function findSessionLog(root, sessionId = '') {
     for (const entry of entries) {
       const target = path.join(directory, entry.name)
       if (entry.isDirectory()) stack.push(target)
-      else if (entry.isFile() && entry.name === 'session.jsonl') {
+      else if (entry.isFile() && /^session(?:\.v[1-9][0-9]*)?\.jsonl$/.test(entry.name)) {
         let modified = 0
         try { modified = fs.statSync(target).mtimeMs } catch (_) {}
-        candidates.push({ target, modified })
+        candidates.push({ target, modified, version: Number(entry.name.match(/\.v(\d+)\./)?.[1] || 0) })
       }
     }
   }
   if (sessionId) {
-    const exact = candidates.find((item) => path.basename(path.dirname(item.target)) === sessionId)
-    if (exact) return exact.target
+    const exact = candidates.filter((item) => path.basename(path.dirname(item.target)) === sessionId).sort((a, b) => b.version - a.version)[0]
+    return exact ? exact.target : ''
   }
   candidates.sort((a, b) => b.modified - a.modified)
   return candidates.length ? candidates[0].target : ''
@@ -115,22 +142,16 @@ class AcpHarnessClient {
     this.closed = false
     this.closing = false
     this.exitPromise = null
+    this.closePromise = null
+    this.toolContexts = new Map()
   }
 
   start() {
     if (this.child) return
-    const harnessDir = path.resolve(this.options.harnessDir)
-    const bin = path.join(harnessDir, 'packages', 'examples', 'acp-demo', 'src', 'bin.ts')
-    const appConfig = process.resourcesPath ? path.join(process.resourcesPath, 'dpa.cordis.yml') : ''
-    const localConfig = path.join(__dirname, 'dpa.cordis.yml')
-    const harnessConfig = path.join(harnessDir, 'examples', 'acp-agent', 'cordis.yml')
-    const config = [this.options.configPath, appConfig, localConfig, harnessConfig]
-      .filter(Boolean)
-      .find((candidate) => fs.existsSync(candidate))
-    if (!fs.existsSync(bin) || !fs.existsSync(config)) throw new Error('Harness ACP 运行入口不完整')
+    const launch = resolveAcpLaunch(this.options)
 
     const env = {
-      ...loadCredentialEnv(this.options.dshHome),
+      ...loadCredentialEnv(this.options.dshHome, launch.cwd),
       ...process.env,
       DSH_HOME: this.options.dshHome,
       DSH_PERMISSION_MODE: 'workspace-write',
@@ -139,10 +160,13 @@ class AcpHarnessClient {
       DPA_ACP_PROVIDER: this.options.provider || 'deepseek-official',
       DPA_ACP_MODEL: this.options.model || 'deepseek-v4-pro',
       DPA_ACP_PERSONA: this.options.persona || '',
+      DPA_ACP_WORKSPACE: path.resolve(this.options.workspace || launch.cwd),
+      DPA_ACP_BRAIN: this.options.brainType || 'dsh-acp',
+      DSH_TELEMETRY_DISABLED: '1',
       DPA_SKILL_MODE: ['all', 'selected', 'none'].includes(this.options.skillMode) ? this.options.skillMode : 'all',
     }
-    this.child = spawn('node', ['--import', 'tsx', bin, '--config', config], {
-      cwd: harnessDir,
+    this.child = spawn(this.options.nodeExecutable || 'node', launch.args, {
+      cwd: launch.cwd,
       env,
       windowsHide: true,
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -150,7 +174,7 @@ class AcpHarnessClient {
     this.exitPromise = new Promise((resolve) => {
       this.child.once('close', (code, signal) => {
         this.closed = true
-        const error = new Error(`Harness ACP 已退出（code=${code}, signal=${signal || 'none'}）：${bounded(this.stderrTail, 1200)}`)
+        const error = new Error(`Harness ACP 已退出（code=${code}, signal=${signal || 'none'}）：${bounded(redactSensitive(this.stderrTail), 1200)}`)
         for (const item of this.pending.values()) {
           clearTimeout(item.timer)
           item.reject(error)
@@ -164,6 +188,11 @@ class AcpHarnessClient {
         clearTimeout(item.timer)
         item.reject(error)
       }
+      this.pending.clear()
+    })
+    this.child.stdin.on('error', (error) => {
+      // A child can exit between writable-check and write (EPIPE); fail requests without crashing DPA.
+      for (const item of this.pending.values()) { clearTimeout(item.timer); item.reject(error) }
       this.pending.clear()
     })
     this.child.stdout.on('data', (chunk) => this.consumeStdout(String(chunk || '')))
@@ -190,6 +219,11 @@ class AcpHarnessClient {
       return
     }
     if (frame && frame.method) {
+      const update = frame.method === 'session/update' && frame.params && frame.params.update
+      if (update && update.sessionUpdate === 'tool_call' && update.toolCallId) {
+        this.toolContexts.set(`${frame.params.sessionId}:${update.toolCallId}`, update)
+        while (this.toolContexts.size > 200) this.toolContexts.delete(this.toolContexts.keys().next().value)
+      }
       if (this.options.onNotification) this.options.onNotification(frame)
       return
     }
@@ -197,7 +231,7 @@ class AcpHarnessClient {
     if (!item) return
     this.pending.delete(frame.id)
     clearTimeout(item.timer)
-    if (frame.error) item.reject(new Error(String(frame.error.message || 'ACP 请求失败')))
+    if (frame.error) item.reject(new Error(redactSensitive(frame.error.message || 'ACP 请求失败')))
     else item.resolve(frame.result)
   }
 
@@ -206,8 +240,11 @@ class AcpHarnessClient {
       this.write({ jsonrpc: '2.0', id: frame.id, error: { code: -32601, message: 'Unsupported client method' } })
       return
     }
+    const params = frame.params || {}
+    const context = this.toolContexts.get(`${params.sessionId}:${params.toolCall && params.toolCall.toolCallId}`)
+    const enriched = context ? { ...params, toolCall: { ...context, ...params.toolCall } } : params
     const decide = this.options.onPermission
-      ? Promise.resolve(this.options.onPermission(frame.params || {}))
+      ? Promise.resolve().then(() => this.options.onPermission(enriched))
       : Promise.resolve('reject')
     decide.then((decision) => {
       const allow = decision === true || decision === 'allow'
@@ -217,9 +254,11 @@ class AcpHarnessClient {
       if (!selected) return { outcome: { outcome: 'cancelled' } }
       return { outcome: { outcome: 'selected', optionId: selected.optionId } }
     }).then((result) => {
-      this.write({ jsonrpc: '2.0', id: frame.id, result })
+      if (!this.closed && !this.closing) this.write({ jsonrpc: '2.0', id: frame.id, result })
     }).catch(() => {
-      this.write({ jsonrpc: '2.0', id: frame.id, result: { outcome: { outcome: 'cancelled' } } })
+      if (!this.closed && !this.closing) {
+        try { this.write({ jsonrpc: '2.0', id: frame.id, result: { outcome: { outcome: 'cancelled' } } }) } catch (_) { /* Child already exited. */ }
+      }
     })
   }
 
@@ -249,20 +288,33 @@ class AcpHarnessClient {
     })
   }
 
-  async close() {
-    if (!this.child || this.closed || this.closing) return
+  close() {
+    if (!this.closePromise) this.closePromise = this.closeInternal()
+    return this.closePromise
+  }
+
+  async waitForExit(timeoutMs) {
+    let timer
+    try {
+      return await Promise.race([this.exitPromise.then(() => true), new Promise((resolve) => { timer = setTimeout(() => resolve(false), timeoutMs) })])
+    } finally { clearTimeout(timer) }
+  }
+
+  async closeInternal() {
+    if (!this.child || this.closed) return
     this.closing = true
+    for (const item of this.pending.values()) {
+      clearTimeout(item.timer)
+      const error = new Error('Harness ACP 运行已结束或取消')
+      error.name = 'AbortError'
+      item.reject(error)
+    }
+    this.pending.clear()
     try { this.child.stdin.end() } catch (_) {}
-    const exited = await Promise.race([
-      this.exitPromise.then(() => true),
-      new Promise((resolve) => setTimeout(() => resolve(false), 6000)),
-    ])
+    const exited = await this.waitForExit(6000)
     if (!exited && this.child && !this.closed) {
       try { this.child.kill() } catch (_) {}
-      await Promise.race([
-        this.exitPromise,
-        new Promise((resolve) => setTimeout(resolve, 2000)),
-      ])
+      await this.waitForExit(2000)
     }
   }
 }
@@ -271,7 +323,7 @@ function createLogProjector(options) {
   let logFile = ''
   let sessionId = ''
   let lastSeq = -1
-  const usage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, reasoningTokens: 0, totalTokens: 0 }
+  const usage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, reasoningTokens: 0, totalTokens: 0 }
   let toolCalls = 0
 
   const publish = (event) => {
@@ -305,8 +357,9 @@ function createLogProjector(options) {
           meta: { callId: result.callId, isError: result.isError },
         })
       } else if (event.type === 'assistant/message' && event.data && event.data.usage) {
-        for (const key of Object.keys(usage)) usage[key] += Number(event.data.usage[key] || 0)
-        usage.totalTokens = usage.inputTokens + usage.outputTokens
+        const current = event.data.usage
+        for (const key of Object.keys(usage).filter((key) => key !== 'totalTokens')) usage[key] += Number(current[key] || 0)
+        usage.totalTokens += Number(current.totalTokens ?? (Number(current.inputTokens || 0) + Number(current.outputTokens || 0) + Number(current.cacheReadTokens || 0) + Number(current.cacheWriteTokens || 0)))
         publish({
           type: 'telemetry.usage',
           text: `Harness 累计 ${usage.totalTokens} tokens`,
@@ -323,6 +376,11 @@ function createLogProjector(options) {
 }
 
 async function runAcpTask(options) {
+  if (options.signal && options.signal.aborted) {
+    const error = new Error('操作已取消')
+    error.name = 'AbortError'
+    throw error
+  }
   fs.mkdirSync(options.workspace, { recursive: true })
   fs.mkdirSync(options.sessionsRoot, { recursive: true })
   let finalText = ''
@@ -385,6 +443,9 @@ async function runAcpTask(options) {
 
 module.exports = {
   AcpHarnessClient,
+  loadCredentialEnv,
+  resolveAcpLaunch,
+  createLogProjector,
   bounded,
   parseArguments,
   redactSensitive,

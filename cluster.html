@@ -13,7 +13,7 @@
       <div class="module-title"><span>DPA</span> 集群</div>
       <button class="module-tab" id="nav-employees" type="button">开发 · 员工中心</button>
       <button class="module-tab active" id="nav-projects" type="button">应用 · 项目空间</button>
-      <div class="module-meta">发言 · 动作 · 任务 · 交付 · 审批全程留档</div>
+      <div class="module-meta">协作工作台 · 讨论与执行全程留档</div>
     </header>
 
     <section class="view hidden" id="view-employees">
@@ -57,7 +57,7 @@
         <aside class="project-sidebar">
           <div class="sidebar-head">
             <div class="sidebar-title"><h2>项目</h2><div class="sidebar-actions"><button class="btn small danger hidden" id="project-trash-empty" type="button">清空回收站</button><button class="btn small ghost" id="project-trash-toggle" type="button">回收站</button><button class="btn small icon-btn" id="new-project" type="button" title="建立项目">＋</button></div></div>
-            <p class="micro">每个项目拥有独立会议、任务、交付与审批记录。</p>
+            <p class="micro">组织团队，推进工作。<br>右键项目可删除或设置重要性。</p>
           </div>
           <div class="project-list" id="project-list"></div>
         </aside>
@@ -65,9 +65,9 @@
 
         <main class="project-main">
           <section class="empty-state" id="project-empty">
-            <div class="empty-orbit">◎</div>
+            <div class="empty-orbit" aria-hidden="true">✦</div>
             <h1>建立第一个项目空间</h1>
-            <p class="subtle">选择治理策略和员工，然后像召开公司项目会议一样介绍任务。</p>
+            <p class="subtle">把目标交给你的 AI 团队。<br>选定员工与协作方式，讨论、执行，再由你验收。</p>
             <button class="btn primary" id="empty-new-project" type="button">建立新项目</button>
           </section>
 

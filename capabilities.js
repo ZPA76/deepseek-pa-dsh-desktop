@@ -20,6 +20,7 @@ const MONO_STACKS = {
 }
 const TYPOGRAPHY_DEFAULTS = { uiFont:'system', customFont:'', monoFont:'cascadia', fontSize:14, lineHeight:1.5, zoom:100, ctrlWheel:'zoom', chatFont:'inherit', chatFontSize:15 }
 const state = { appearance:null, skills:[], plugins:[], extensions:[], backups:[], github:null, kind:'all', view:'market', busy:false }
+state.market = { page:1, perPage:30, source:'github', sort:'best-match', query:'deepseek-harness', signature:'', requestId:0, loading:false, result:null }
 const api = {
   request(method, payload) {
     return new Promise((resolve, reject) => {
@@ -166,12 +167,12 @@ function switchView(view) {
   document.querySelectorAll('.view').forEach((section) => section.classList.toggle('hidden', section.id !== `view-${view}`))
 }
 
-function kindLabel(kind) { return ({ plugin:'插件', skill:'Skill', theme:'主题', mcp:'MCP', bundle:'能力包' }[kind] || kind || '扩展') }
+function kindLabel(kind) { return ({ plugin:'插件', skill:'Skill', theme:'主题', mcp:'MCP', bundle:'能力包', repository:'GitHub 仓库' }[kind] || kind || '扩展') }
 function trustLabel(value) { return ({ 'community-reviewed':'社区已审阅', community:'社区', runtime:'DSH 内置', unverified:'未验证' }[value] || value || '未知来源') }
 
 function renderMarket() {
   const grid = byId('extension-grid'); grid.innerHTML = ''
-  if (!state.extensions.length) { grid.innerHTML = '<div class="notice">没有找到匹配的扩展。</div>'; return }
+  if (!state.extensions.length) { grid.innerHTML = `<div class="market-empty"><strong>${state.market.loading ? '正在寻找匹配的项目…' : '当前没有可展示的结果'}</strong><p>${state.market.loading ? '结果将按 GitHub 排序显示。' : '试试更短的关键词，或选择“全部”以取消追加的分类词。'}</p></div>`; return }
   for (const item of state.extensions) {
     const card = document.createElement('article'); card.className = 'extension-card'
     const installable = (Boolean(item.installSpec) && ['plugin','theme'].includes(item.kind)) || (item.kind === 'skill' && Boolean(item.repo))
@@ -274,14 +275,73 @@ function renderGithub() {
   button.classList.toggle('connected', Boolean(github.connected)); button.title = github.message || ''
 }
 
-async function searchMarket(remote = false) {
-  const query = remote ? byId('market-search').value.trim() : ''
-  byId('market-notice').textContent = remote ? '正在查询 GitHub 并判断扩展类型…' : '正在加载推荐扩展…'
+function marketGithubUrl() {
+  const market = state.market
+  const effectiveQuery = `${market.query}${state.kind !== 'all' ? ` ${state.kind}` : ''}`.trim()
+  const params = new URLSearchParams({ q:effectiveQuery, type:'repositories' })
+  if (market.sort !== 'best-match') { params.set('s', market.sort); params.set('o', 'desc') }
+  return `https://github.com/search?${params}`
+}
+
+function renderMarketPagination() {
+  const market = state.market; const result = market.result
+  const pages = result && result.totalPages || 0
+  byId('market-prev').disabled = market.loading || !result || !result.hasPrevious
+  byId('market-next').disabled = market.loading || !result || !result.hasNext
+  byId('market-page-go').disabled = market.loading || pages < 2
+  byId('market-page-input').disabled = market.loading || pages < 2
+  byId('market-page-input').max = String(pages || 1)
+  byId('market-page-input').value = String(market.page)
+  byId('market-page-label').textContent = pages ? `第 ${market.page} / ${pages} 页` : '暂无结果'
+  byId('market-open-github').hidden = market.source !== 'github'
+  byId('market-sort').disabled = market.source === 'curated'
+  byId('market-search-button').textContent = market.source === 'curated' ? '搜索推荐' : '搜索 GitHub'
+  byId('extension-grid').setAttribute('aria-busy', String(market.loading))
+}
+
+async function searchMarket(options = {}) {
+  const market = state.market
+  const query = byId('market-search').value.trim()
+  const source = byId('market-source').value
+  const sort = byId('market-sort').value
+  const perPage = Number(byId('market-page-size').value)
+  const signature = JSON.stringify([query, source, sort, perPage, state.kind])
+  const page = options.reset || signature !== market.signature ? 1 : (options.page || market.page)
+  const requestId = ++market.requestId
+  Object.assign(market, { page, perPage, source, sort, query, signature, loading:true, result:null })
+  state.extensions = []
+  const effectiveQuery = `${query}${source === 'github' && state.kind !== 'all' ? ` ${state.kind}` : ''}`.trim()
+  byId('market-query-hint').textContent = source === 'github' ? `实际 GitHub 查询：${effectiveQuery || '请输入关键词'} · 分类按钮追加关键词；卡片类型为推测，不会再次过滤搜索结果。` : 'DPA 推荐是独立的小型精选清单；选择“GitHub 全站”可搜索全部可访问的仓库。'
+  byId('market-notice').className = 'notice'
+  byId('market-notice').textContent = source === 'github' ? '正在查询 GitHub…支持 user:、org:、topic:、language:、stars: 等条件。' : '正在加载 DPA 推荐…'
+  byId('market-result-summary').textContent = `正在加载第 ${page} 页…`
+  renderMarket(); renderMarketPagination()
   try {
-    state.extensions = await api.request('searchExtensions', { query, kind:state.kind })
-    byId('market-notice').textContent = query ? `GitHub 搜索完成：${state.extensions.length} 个候选。未验证项目不会直接标记为安全。` : '推荐项目来自公开社区资料；安装前仍会再次显示来源和风险。'
-    renderMarket()
-  } catch (error) { byId('market-notice').textContent = `搜索失败：${error.message}`; byId('market-notice').className = 'notice error'; toast(error.message, true) }
+    const response = await api.request('searchExtensions', { query, kind:state.kind, source, sort, perPage, page, refresh:Boolean(options.refresh) })
+    if (requestId !== market.requestId) return
+    // Older bridge fixtures return an array; production returns the paginated envelope.
+    const result = Array.isArray(response) ? { items:response, page:1, perPage, totalCount:response.length, totalPages:response.length ? 1 : 0 } : response
+    if (!result || !Array.isArray(result.items)) throw new Error('搜索结果格式不正确，请重新搜索。')
+    market.result = result; market.page = result.page || 1; state.extensions = result.items
+    const first = state.extensions.length ? (market.page - 1) * perPage + 1 : 0
+    const last = first ? first + state.extensions.length - 1 : 0
+    byId('market-result-summary').textContent = `共 ${Number(result.totalCount || 0).toLocaleString()} 个结果 · 当前 ${first}–${last} 项${result.cached ? ' · 最近缓存' : ''}`
+    const notices = []
+    if (result.requiresQuery) notices.push('请输入搜索关键词，或选择 DPA 推荐浏览精选项目。')
+    else if (source === 'github') notices.push('按 GitHub 仓库搜索结果逐页展示；搜索到的仓库不等于已兼容 DSH，安装前请检查说明。')
+    else notices.push('推荐项目来自社区资料；安装前会显示来源和预检结果。')
+    if (result.limited) notices.push('GitHub API 每个查询最多允许翻阅前 1,000 项（并非 DPA 截断）。请用 topic:、language:、stars: 或更具体的关键词缩小范围；也可打开同一 GitHub 搜索。')
+    if (result.incompleteResults) notices.push('GitHub 本次检索未完成，返回的总数和结果可能不完整；请重新搜索或缩小查询范围。')
+    byId('market-notice').textContent = notices.join(' ')
+  } catch (error) {
+    if (requestId !== market.requestId) return
+    byId('market-result-summary').textContent = '本次搜索未完成'
+    byId('market-notice').textContent = `搜索失败：${error.message}`
+    byId('market-notice').className = 'notice error'
+    toast(error.message, true)
+  } finally {
+    if (requestId === market.requestId) { market.loading = false; renderMarket(); renderMarketPagination() }
+  }
 }
 
 async function openSource(url) { try { await api.request('openExternal', { url }) } catch (error) { toast(error.message, true) } }
@@ -316,7 +376,7 @@ async function installRemoteSkill(item) {
     toast('正在受管下载并校验 Skill…')
     const result = await api.request('installRemoteSkill', { repo:preflight.repo, ref:preflight.ref, path:selected, confirmed:true, overwrite:false })
     showInfo('Skill 安装完成', `<p><strong>${esc(result.installed.name)}</strong> 已安装到 DPA 市场目录。</p><p class="muted">${Number(result.fileCount || 0)} 个文件 · ${Number(result.totalBytes || 0).toLocaleString()} bytes</p>`)
-    await refreshInstalled(); await searchMarket(false)
+    await refreshInstalled(); await searchMarket()
   } catch (error) { toast(error.message, true); showInfo('Skill 安装失败', `<div class="notice error">${esc(error.message)}</div>`) }
 }
 
@@ -329,7 +389,7 @@ async function mutatePlugin(action, spec, item = {}) {
     toast('正在执行扩展操作，请勿关闭 DPA…')
     const result = await api.request('mutatePlugin', { action, spec, confirmed:true })
     showInfo('扩展操作完成', `<p>${esc(result.spec)} 已完成。${result.restartRequired ? '需要重启 Harness 才能完全生效。' : ''}</p><pre class="log">${esc(result.output || '')}</pre>`)
-    await refreshInstalled(); await refreshBackups(); await searchMarket(false)
+    await refreshInstalled(); await refreshBackups(); await searchMarket()
   } catch (error) { toast(error.message, true); showInfo('扩展操作失败', `<div class="notice error">${esc(error.message)}</div>`) }
 }
 
@@ -337,7 +397,7 @@ async function connectGithub() {
   try {
     if (state.github && state.github.connected) {
       if (!confirm(`断开 GitHub 账号 ${state.github.login}？`)) return
-      await api.request('githubDisconnect'); state.github = await api.request('githubStatus'); renderGithub(); return
+      await api.request('githubDisconnect'); state.github = await api.request('githubStatus'); renderGithub(); await searchMarket({ reset:true, refresh:true }); return
     }
     if (!state.github || !state.github.configured) { showInfo('GitHub 登录尚未配置', '<p>DPA 当前可以匿名搜索公开仓库。若要登录、访问私有仓库或发布扩展，需要为 DPA 注册 GitHub App，启用 Device Flow，并设置 <code>DPA_GITHUB_CLIENT_ID</code>。</p>'); return }
     const flow = await api.request('githubStartLogin')
@@ -346,7 +406,7 @@ async function connectGithub() {
     while (Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, Math.max(5, Number(flow.interval || 5)) * 1000))
       const result = await api.request('githubPollLogin', { deviceCode:flow.deviceCode })
-      if (!result.pending) { state.github = result.status; renderGithub(); byId('operation-dialog').close(); toast('GitHub 已连接'); return }
+      if (!result.pending) { state.github = result.status; renderGithub(); byId('operation-dialog').close(); toast('GitHub 已连接'); await searchMarket({ reset:true, refresh:true }); return }
     }
     throw new Error('GitHub 授权已超时')
   } catch (error) { toast(error.message, true) }
@@ -364,13 +424,24 @@ async function refresh() {
   applyAppearance(state.appearance); renderGithub(); renderThemes(); renderInstalled(); renderBackups(); renderTokenEditor(); fillEditor(state.appearance.theme); fillTypography(state.appearance.typography); fillBackground(state.appearance.background)
   byId('theme-editor-panel').open = false
   byId('runtime-summary').textContent = result.capabilities.agentTeam.supported ? `Harness ${result.capabilities.plugins.writable ? '扩展安装可用' : '只读'} · Agent Team 可用` : 'Harness 扩展中心已连接'
-  await searchMarket(false)
+  await searchMarket()
 }
 
 document.querySelectorAll('.tabs .tab').forEach((tab) => tab.addEventListener('click', () => switchView(tab.dataset.view)))
-document.querySelectorAll('#market-filters .chip').forEach((chip) => chip.addEventListener('click', () => { state.kind = chip.dataset.kind; document.querySelectorAll('#market-filters .chip').forEach((item) => item.classList.toggle('active', item === chip)); searchMarket(Boolean(byId('market-search').value.trim())) }))
-byId('market-search-button').addEventListener('click', () => searchMarket(true))
-byId('market-search').addEventListener('keydown', (event) => { if (event.key === 'Enter') searchMarket(true) })
+document.querySelectorAll('#market-filters .chip').forEach((chip) => chip.addEventListener('click', () => { state.kind = chip.dataset.kind; document.querySelectorAll('#market-filters .chip').forEach((item) => item.classList.toggle('active', item === chip)); searchMarket({ reset:true }) }))
+byId('market-search-button').addEventListener('click', () => searchMarket({ reset:true, refresh:true }))
+byId('market-search').addEventListener('keydown', (event) => { if (event.key === 'Enter') searchMarket({ reset:true, refresh:true }) })
+byId('market-source').addEventListener('change', () => { if (byId('market-source').value === 'curated') byId('market-search').value = ''; searchMarket({ reset:true }) })
+for (const id of ['market-sort', 'market-page-size']) byId(id).addEventListener('change', () => searchMarket({ reset:true }))
+byId('market-prev').addEventListener('click', () => searchMarket({ page:Math.max(1, state.market.page - 1) }))
+byId('market-next').addEventListener('click', () => searchMarket({ page:state.market.page + 1 }))
+function jumpMarketPage() {
+  const max = state.market.result && state.market.result.totalPages || 1
+  searchMarket({ page:Math.max(1, Math.min(max, Math.floor(Number(byId('market-page-input').value) || 1))) })
+}
+byId('market-page-go').addEventListener('click', jumpMarketPage)
+byId('market-page-input').addEventListener('keydown', (event) => { if (event.key === 'Enter' && !state.market.loading) jumpMarketPage() })
+byId('market-open-github').addEventListener('click', () => openSource(marketGithubUrl()))
 byId('github-account').addEventListener('click', connectGithub)
 byId('refresh-installed').addEventListener('click', () => refreshInstalled().catch((error) => toast(error.message, true)))
 byId('refresh-backups').addEventListener('click', () => refreshBackups().catch((error) => toast(error.message, true)))

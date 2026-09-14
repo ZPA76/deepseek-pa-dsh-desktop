@@ -22,37 +22,42 @@
     body::after { z-index:0; background:var(--shell-bg); opacity:var(--wallpaper-overlay); }
     html[data-dpa-wallpaper="true"] body::before,html[data-dpa-wallpaper="true"] body::after { display:block; }
     body > * { position:relative; z-index:1; }
-    .topbar { height:44px; flex:0 0 44px; display:flex; align-items:center; gap:6px; padding:0 14px; background:var(--shell-panel); border-bottom:1px solid var(--shell-line); user-select:none; }
-    .brand { color:var(--shell-text); font-size:14px; font-weight:650; letter-spacing:.02em; margin-right:12px; display:flex; align-items:center; gap:6px; }
+    .topbar { min-height:60px; flex:0 0 auto; display:flex; align-items:center; gap:6px; padding:10px 22px; background:var(--shell-panel); border-bottom:1px solid var(--shell-line); user-select:none; }
+    .brand { color:var(--shell-text); font-size:15px; font-weight:650; letter-spacing:-.01em; margin-right:28px; display:flex; align-items:center; gap:10px; white-space:nowrap; }
+    .brand img { width:28px; height:28px; object-fit:contain; }
     .brand svg { width:18px; height:18px; }
     .brand-mark { fill:var(--shell-accent); }
-    .tab { padding:6px 16px; border-radius:8px; cursor:pointer; color:var(--shell-muted); font-size:13px; transition:background .15s,color .15s; }
+    .tab { display:inline-flex; align-items:center; gap:8px; min-height:38px; padding:8px 15px; border:1px solid transparent; border-radius:9px; background:transparent; cursor:pointer; color:var(--shell-muted); font:550 max(12px,calc(var(--ui-font-size) - 1px))/1.5 var(--ui-font-family); transition:background .15s,color .15s; white-space:nowrap; }
+    .tab svg { width:17px; height:17px; fill:none; stroke:currentColor; stroke-width:1.65; stroke-linecap:round; stroke-linejoin:round; }
     .tab:hover { background:var(--shell-hover); color:var(--shell-text); }
-    .tab.active { background:var(--shell-active); color:var(--shell-text); }
+    .tab.active { background:color-mix(in srgb,var(--shell-accent) 12%,var(--shell-panel)); color:var(--shell-accent); border-color:color-mix(in srgb,var(--shell-accent) 22%,var(--shell-line)); }
+    button:focus-visible { outline:2px solid var(--shell-accent); outline-offset:3px; }
     .spacer { flex:1; }
-    .update-button { border:1px solid var(--shell-line); border-radius:8px; padding:5px 10px; background:var(--shell-panel-2); color:var(--shell-muted); font-size:12px; cursor:pointer; }
+    .update-button { border:1px solid var(--shell-line); border-radius:8px; padding:6px 11px; background:transparent; color:var(--shell-muted); font: max(11px,calc(var(--ui-font-size) - 2px))/1.5 var(--ui-font-family); cursor:pointer; white-space:nowrap; }
     .update-button:hover { color:var(--shell-text); border-color:var(--shell-accent); }
     .update-button.available { color:#fff; background:var(--shell-accent-strong); border-color:var(--shell-accent); }
     .update-button.error { color:var(--shell-danger); border-color:var(--shell-danger); }
     .update-button:disabled { cursor:wait; opacity:.72; }
-    .content { flex:1; position:relative; background:var(--shell-bg); }
+    .content { flex:1; min-height:0; position:relative; background:var(--shell-bg); }
     webview,iframe { position:absolute; inset:0; border:0; width:100%; height:100%; background:var(--shell-bg); }
     .hidden { display:none; }
+    @media(max-width:850px) { .topbar { gap:4px; padding:9px 12px; } .brand { margin-right:10px; font-size:13px; gap:7px; } .tab { padding:7px 10px; } .update-button { max-width:150px; overflow:hidden; text-overflow:ellipsis; } }
+    @media(max-width:640px) { .brand { font-size:0; margin-right:4px; } .brand img { width:25px; height:25px; } .tab { gap:5px; padding:7px 8px; } .tab svg { width:15px; height:15px; } }
     @media (prefers-reduced-motion:reduce) { * { transition:none !important; } }
   </style>
 </head>
 <body>
   <div class="topbar">
-    <div class="brand"><svg viewBox="0 0 24 24"><path class="brand-mark" d="M4 12c0-1.5 1.2-2 3.2-2.4C8.4 6.2 10 4 12 4c2 0 3.6 2.2 4.8 5.6C18.8 10 20 10.5 20 12s-1.2 2-3.2 2.4C15.6 17.8 14 20 12 20s-3.6-2.2-4.8-5.6C5.2 14 4 13.5 4 12Z"/></svg>DeepSeek-PA</div>
-    <div class="tab active" id="tab-agent" data-mode="agent">Agent</div>
-    <div class="tab" id="tab-chat" data-mode="chat">Chat</div>
-    <div class="tab" id="tab-cluster" data-mode="cluster">集群</div>
-    <div class="tab" id="tab-capabilities" data-mode="capabilities">扩展中心</div>
+    <div class="brand"><img src="icon.png" alt="">DeepSeek-PA</div>
+    <button class="tab active" id="tab-agent" data-mode="agent" type="button" aria-label="Agent 智能体工作台"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="7" width="16" height="13" rx="4"/><path d="M12 3v4M8 12h.01M16 12h.01M9 16h6"/></svg>Agent</button>
+    <button class="tab" id="tab-chat" data-mode="chat" type="button" aria-label="Chat 对话"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 0 1-8 8H5l-3 3V11a9 9 0 1 1 18 0Z"/><path d="M7 9h9M7 13h6"/></svg>Chat</button>
+    <button class="tab" id="tab-cluster" data-mode="cluster" type="button" aria-label="集群协作"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="2" width="8" height="6" rx="2"/><rect x="2" y="16" width="7" height="6" rx="2"/><rect x="15" y="16" width="7" height="6" rx="2"/><path d="M12 8v4M5.5 16v-4h13v4"/></svg>集群</button>
+    <button class="tab" id="tab-capabilities" data-mode="capabilities" type="button" aria-label="扩展中心"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><path d="M17.5 14v7M14 17.5h7"/></svg>扩展中心</button>
     <div class="spacer"></div>
     <button class="update-button" id="dsh-update" type="button">DSH 检查更新</button>
   </div>
   <div class="content">
-    <webview id="view" src="http://127.0.0.1:3080/"></webview>
+    <webview id="view" src="about:blank"></webview>
     <iframe id="cluster" class="hidden" src="cluster.html"></iframe>
     <iframe id="capabilities" class="hidden" src="capabilities.html"></iframe>
   </div>
@@ -61,13 +66,36 @@
     const view = document.getElementById('view')
     const clusterFrame = document.getElementById('cluster')
     const capabilitiesFrame = document.getElementById('capabilities')
-    const AGENT_URL = 'http://127.0.0.1:3080/'
+    const LOCAL_AGENT_URL = 'http://127.0.0.1:3080/'
     const CHAT_URL = 'https://chat.deepseek.com/'
+    let agentUrl = LOCAL_AGENT_URL
+    let activeMode = 'agent'
     let currentTheme = null
     let currentAppearance = null
     let dshThemeCssKey = null
+    let webviewReady = false
+    const webviewReadyPromise = new Promise((resolve) => {
+      view.addEventListener('dom-ready', () => { webviewReady = true; resolve() }, { once:true })
+    })
+
+    function normalizeLocalAgentUrl(value) {
+      try {
+        const candidate = new URL(String(value || LOCAL_AGENT_URL))
+        if (candidate.origin !== new URL(LOCAL_AGENT_URL).origin || candidate.pathname !== '/') return LOCAL_AGENT_URL
+        return candidate.toString()
+      } catch (_) {
+        return LOCAL_AGENT_URL
+      }
+    }
+
+    async function loadAgentUrl(value) {
+      agentUrl = normalizeLocalAgentUrl(value)
+      await webviewReadyPromise
+      try { await view.loadURL(agentUrl) } catch (_) {}
+    }
 
     function switchTo(mode) {
+      activeMode = mode
       const localFrame = mode === 'cluster' || mode === 'capabilities'
       for (const name of ['agent','chat','cluster','capabilities']) document.getElementById(`tab-${name}`).classList.toggle('active', mode === name)
       if (localFrame) {
@@ -77,12 +105,34 @@
         return
       }
       clusterFrame.classList.add('hidden'); capabilitiesFrame.classList.add('hidden'); view.classList.remove('hidden')
-      const target = mode === 'agent' ? AGENT_URL : CHAT_URL
-      if (view.getURL() !== target) view.loadURL(target).catch(() => {})
+      if (!webviewReady) {
+        webviewReadyPromise.then(() => { if (activeMode === mode) switchTo(mode) }).catch(() => {})
+        return
+      }
+      if (mode === 'agent') {
+        try {
+          if (new URL(view.getURL()).origin === new URL(LOCAL_AGENT_URL).origin) return
+        } catch (_) {}
+        loadAgentUrl(agentUrl)
+        return
+      }
+      if (view.getURL() !== CHAT_URL) view.loadURL(CHAT_URL).catch(() => {})
     }
     for (const name of ['agent','chat','cluster','capabilities']) document.getElementById(`tab-${name}`).addEventListener('click', () => switchTo(name))
 
+    const serverAPI = window.harnessDesktop && window.harnessDesktop.server
+    if (serverAPI) {
+      serverAPI.onAuthenticatedUrl((url) => {
+        agentUrl = normalizeLocalAgentUrl(url)
+        if (activeMode === 'agent') loadAgentUrl(agentUrl)
+      })
+      serverAPI.authenticatedUrl().then((url) => loadAgentUrl(url)).catch(() => loadAgentUrl(LOCAL_AGENT_URL))
+    } else {
+      loadAgentUrl(LOCAL_AGENT_URL)
+    }
+
     function injectCodex(attempt) {
+      if (!webviewReady) return
       try {
         const url = view.getURL() || ''
         if (!url.startsWith('http://127.0.0.1')) return
@@ -106,6 +156,7 @@
     }
 
     async function injectThemeToHarness(theme) {
+      if (!webviewReady) return
       try {
         if (!(view.getURL() || '').startsWith('http://127.0.0.1')) return
         if (dshThemeCssKey) await view.removeInsertedCSS(dshThemeCssKey).catch(() => {})
@@ -113,7 +164,14 @@
       } catch (_) {}
     }
 
-    view.addEventListener('dom-ready', () => { injectCodex(0); if (currentTheme) injectThemeToHarness(currentTheme) })
+    view.addEventListener('dom-ready', () => {
+      try {
+        const current = new URL(view.getURL())
+        if (current.origin === new URL(LOCAL_AGENT_URL).origin && !current.searchParams.has('token')) agentUrl = LOCAL_AGENT_URL
+      } catch (_) {}
+      injectCodex(0)
+      if (currentTheme) injectThemeToHarness(currentTheme)
+    })
 
     const clusterAPI = window.harnessDesktop && window.harnessDesktop.cluster
     if (clusterAPI) {

@@ -1,0 +1,58 @@
+# DPA employees compose through the supported DSH ACP profile (DSH 0.1.5+).
+# No secret values are persisted here; each process receives its own task options.
+- id: acp
+  config:
+    provider: !!js process.env.DPA_ACP_PROVIDER ?? 'deepseek-official'
+    model: !!js process.env.DPA_ACP_MODEL ?? 'deepseek-v4-flash'
+
+- id: system-prompt
+  config:
+    personaPrefix: !!js process.env.DPA_ACP_PERSONA ?? 'You are a DPA project employee.'
+    personaSuffix: Your working directory is {{cwd}}. Report completed actions and evidence without hidden reasoning.
+
+- id: sandbox-policy
+  config:
+    mode: workspace-write
+    workspaceRoot: !!js process.env.DPA_ACP_WORKSPACE ?? process.cwd()
+
+- id: approval
+  config:
+    policy: ask
+
+- id: session-persistence-jsonl
+  config:
+    root: !!js process.env.DSH_SNAPSHOT_SESSIONS_ROOT ?? dshHomePath('sessions')
+    compression: none
+
+- id: tool-skill
+  disabled: !!js process.env.DPA_SKILL_MODE === 'none'
+
+- insert:
+    - id: dpa-subagent-codex
+      name: '@deepseek-ai/dsh-subagent-codex'
+      disabled: !!js process.env.DPA_ACP_BRAIN !== 'codex'
+      config:
+        providerName: codex
+    - id: dpa-tool-subagent-codex
+      name: '@deepseek-ai/dsh-tool-subagent'
+      disabled: !!js process.env.DPA_ACP_BRAIN !== 'codex'
+      config:
+        provider: codex
+        toolName: subagent_codex
+        backgroundMode: one-shot
+        enableRunInBackground: false
+        maxDepth: provider-managed
+    - id: dpa-subagent-claude-code
+      name: '@deepseek-ai/dsh-subagent-claude-code'
+      disabled: !!js process.env.DPA_ACP_BRAIN !== 'claude-code'
+      config:
+        providerName: claude-code
+    - id: dpa-tool-subagent-claude-code
+      name: '@deepseek-ai/dsh-tool-subagent'
+      disabled: !!js process.env.DPA_ACP_BRAIN !== 'claude-code'
+      config:
+        provider: claude-code
+        toolName: subagent_claude_code
+        backgroundMode: one-shot
+        enableRunInBackground: false
+        maxDepth: provider-managed

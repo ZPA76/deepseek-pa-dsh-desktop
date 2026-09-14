@@ -7,10 +7,11 @@ const crypto = require('crypto')
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
+const { resolveDpaPaths } = require('./dpa-paths')
 const { ClusterStore, DEFAULT_DSH_HOME } = require('./cluster-store')
-const { runAcpTask, redactSensitive } = require('./cluster-acp-client')
+const { runAcpTask, redactSensitive, loadCredentialEnv, resolveAcpLaunch } = require('./cluster-acp-client')
 
-const DSH_HOME = process.env.DSH_HOME || DEFAULT_DSH_HOME
+const DSH_HOME = process.env.DSH_DESKTOP_DSH_HOME || process.env.DSH_HOME || DEFAULT_DSH_HOME
 const CLUSTERS_DIR = path.join(DSH_HOME, 'clusters')
 const PRESETS_DIR = path.join(DSH_HOME, '.agent-presets')
 
@@ -77,8 +78,30 @@ function readSimpleYaml(file) {
 }
 
 function loadCredentials(homeDir = DSH_HOME) {
-  const file = path.join(homeDir, '.credentials.yaml')
-  return fs.existsSync(file) ? readSimpleYaml(file) : {}
+  return loadCredentialEnv(homeDir, process.env.DSH_DESKTOP_HARNESS_DIR || '')
+}
+
+function modelConnection(provider, homeDir) {
+  const selected = PROVIDERS[provider === 'deepseek-official' ? 'deepseek' : provider || 'deepseek']
+  if (!selected) throw new Error(`会议暂不支持模型提供方「${provider}」，请在员工配置中选择 DeepSeek 或 GLM`)
+  const credentials = loadCredentials(homeDir || DSH_HOME)
+  const key = process.env[selected.keyEnv] || credentials[selected.keyEnv]
+  if (!key) throw new Error(`未配置 ${selected.keyEnv}。请到 Agent 的模型设置中保存对应 API Key，然后回到项目点击重试`)
+  return { ...selected, key }
+}
+
+function validateProjectStart(project, store = getDefaultStore()) {
+  if (!project || !Array.isArray(project.members) || !project.members.length) throw new Error('项目至少需要一名员工')
+  for (const member of project.members) {
+    const agent = loadAgent(member.agent || member.id, store)
+    modelConnection(memberProvider(member, agent), store.homeDir)
+    const brain = (member.brain && member.brain.type) || (agent.brain && agent.brain.type) || 'dsh-acp'
+    if (brain !== 'api') {
+      if (memberProvider(member, agent) !== 'deepseek') throw new Error(`员工「${agent.name || agent.id}」的工具执行目前需要 DeepSeek，请切换提供方或选择“仅模型对话”`)
+      resolveAcpLaunch({ harnessDir: process.env.DSH_DESKTOP_HARNESS_DIR || store.harnessDir || resolveDpaPaths().harnessDir })
+    }
+  }
+  return { ready: true }
 }
 
 function presetAgent(agentId) {
@@ -472,11 +495,11 @@ async function readOpenAIStream(response, onDelta) {
   return { text: state.text.trim(), usage: normalizeUsage(state.usage) }
 }
 
-async function callLLMStream({ provider, model, system, user, temperature = 0.7, signal, onDelta, homeDir }) {
-  const selected = PROVIDERS[provider] || PROVIDERS.deepseek
-  const credentials = loadCredentials(homeDir || DSH_HOME)
-  const key = process.env[selected.keyEnv] || credentials[selected.keyEnv]
-  if (!key) throw new Error(`缺少 API key：${selected.keyEnv}`)
+async function callLLMStream({ provider, model, system, user, temperature = 0.7, signal, onDelta, homeDir, timeoutMs = 180000, maxTokens }) {
+  const selected = modelConnection(provider, homeDir)
+  const key = selected.key
+  const timeout = AbortSignal.timeout(Math.max(1000, timeoutMs))
+  const requestSignal = signal ? AbortSignal.any([signal, timeout]) : timeout
   const response = await fetch(selected.endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
@@ -489,12 +512,13 @@ async function callLLMStream({ provider, model, system, user, temperature = 0.7,
       temperature,
       stream: true,
       stream_options: { include_usage: true },
+      ...(maxTokens ? { max_tokens: maxTokens } : {}),
     }),
-    signal,
+    signal: requestSignal,
   })
   if (!response.ok) {
     const body = await response.text()
-    throw new Error(`LLM 调用失败 (${provider || 'deepseek'}/${model || selected.defaultModel}): ${response.status} ${body.slice(0, 240)}`)
+    throw new Error(`LLM 调用失败 (${provider || 'deepseek'}/${model || selected.defaultModel}): ${response.status} ${redactSensitive(body).slice(0, 240)}`)
   }
   const result = await readOpenAIStream(response, onDelta)
   if (!result.text) throw new Error(`LLM 返回空内容 (${provider || 'deepseek'})`)
@@ -642,7 +666,8 @@ function memberSystem(project, member, agent) {
 }
 
 function memberProvider(member, agent) {
-  return member.provider || agent.provider || 'deepseek'
+  const provider = member.provider || agent.provider || 'deepseek'
+  return provider === 'deepseek-official' ? 'deepseek' : provider
 }
 
 function memberModel(member, agent) {
@@ -665,7 +690,8 @@ async function callEmployee(runtime, member, prompt, activity, options = {}) {
   runtime.publish('agent.activity', { actor, text: activity || '正在处理…', taskId: options.taskId, channel: 'activity', purpose: 'progress', visibility: 'owner' })
   runtime.publish('agent.message.started', { actor, text: '', taskId: options.taskId, channel, purpose, visibility, meta: messageMeta })
   const invoke = runtime.handlersCallModel || callLLMStream
-  const result = await invoke({
+  let result
+  try { result = await raceWithAbort(invoke({
     provider: memberProvider(member, agent),
     model: memberModel(member, agent),
     system: options.system || memberSystem(runtime.project, member, agent),
@@ -673,7 +699,7 @@ async function callEmployee(runtime, member, prompt, activity, options = {}) {
     temperature: options.temperature == null ? 0.65 : options.temperature,
     signal: runtime.signal,
     homeDir: runtime.store.homeDir,
-    onDelta: (delta) => runtime.publish('agent.message.delta', {
+    onDelta: (delta) => !runtime.signal?.aborted && runtime.publish('agent.message.delta', {
       actor,
       text: delta,
       taskId: options.taskId,
@@ -683,7 +709,10 @@ async function callEmployee(runtime, member, prompt, activity, options = {}) {
       visibility,
       meta: messageMeta,
     }, false),
-  })
+  }), runtime.signal) } catch (error) {
+    runtime.publish('agent.message.failed', { actor, taskId: options.taskId, channel: 'activity', purpose: 'diagnostic', visibility: 'owner', text: redactSensitive(error.message || error), meta: messageMeta })
+    throw error
+  }
   const normalized = typeof result === 'string' ? { text: result, usage: normalizeUsage({}) } : result
   const text = String(normalized.text || '').trim()
   if (!text) throw new Error(`${actor.name} 返回了空内容`)
@@ -867,18 +896,37 @@ function actionId(value) {
 
 function outsideProjectWorkspace(params, workspace) {
   const text = JSON.stringify(params || {})
-  if (/danger-full-access|outside\s+(?:the\s+)?workspace|workspace\s+escape/i.test(text)) return true
-  if (/(?:^|[\\/"'])\.\.(?:[\\/])/i.test(text)) return true
-  const paths = text.match(/[A-Za-z]:[\\/][^"'\s,}]*/g) || []
-  const root = path.resolve(workspace).toLowerCase()
+  if (/danger-full-access|require_escalated|bypassPermissions|outside\s+(?:the\s+)?workspace|workspace\s+escape/i.test(text)) return true
+  const paths = []
+  const visit = (value, key = '') => {
+    if (Array.isArray(value)) return value.forEach((item) => visit(item, key))
+    if (value && typeof value === 'object') return Object.entries(value).forEach(([name, item]) => visit(item, name))
+    if (typeof value !== 'string') return
+    if (['arguments', 'rawInput'].includes(key)) {
+      try { return visit(JSON.parse(value)) } catch (_) { /* Legacy arguments may be plain text. */ }
+    }
+    if (/^(path|cwd|workspace|workingDirectory|directory|file|filename|target)$/i.test(key)) paths.push(value)
+    else {
+      // Quoted shell paths keep their spaces; unquoted shell paths terminate at whitespace.
+      for (const match of value.matchAll(/["']([A-Za-z]:[\\/][^"']+)["']|\b([A-Za-z]:[\\/][^\s"']+)/g)) paths.push(match[1] || match[2])
+    }
+  }
+  visit(params)
+  const pathApi = /^[A-Za-z]:[\\/]/.test(workspace) ? path.win32 : path
+  const root = pathApi.resolve(workspace).toLowerCase()
   return paths.some((candidate) => {
-    const target = path.resolve(candidate).toLowerCase()
-    return target !== root && !target.startsWith(root + path.sep.toLowerCase())
+    const target = pathApi.resolve(workspace, candidate).toLowerCase()
+    return target !== root && !target.startsWith(root + pathApi.sep.toLowerCase())
   })
 }
 
+function hasPermissionDetails(params) {
+  const call = params && params.toolCall
+  return Boolean(call && (call.title || call.arguments || call.rawInput || call.path || call.command))
+}
+
 async function runDshAcpTask(runtime, task, member, plan, meeting) {
-  const harnessDir = process.env.DSH_DESKTOP_HARNESS_DIR || path.join(process.env.DSH_HOME || process.cwd(), 'harness')
+  const harnessDir = process.env.DSH_DESKTOP_HARNESS_DIR || runtime.store.harnessDir || resolveDpaPaths().harnessDir
   const agent = loadAgent(member.agent || member.id, runtime.store)
   const configuredProvider = memberProvider(member, agent)
   if (configuredProvider !== 'deepseek') {
@@ -937,6 +985,10 @@ async function runDshAcpTask(runtime, task, member, plan, meeting) {
   const decidePermission = async (params) => {
     permissionSeq += 1
     const detail = redactSensitive(JSON.stringify(params || {}))
+    if (!hasPermissionDetails(params)) {
+      runtime.publish('action.permission-blocked', { actor, taskId: task.id, text: 'DSH 未提供此操作的参数，无法确认权限范围，本次授权已拒绝。请查看工具轨迹或更新 DSH。', status: 'rejected', meta: { actionId: action.id } })
+      return 'reject'
+    }
     if (outsideProjectWorkspace(params, workspace)) {
       runtime.publish('action.permission-blocked', {
         actor,
@@ -974,6 +1026,7 @@ async function runDshAcpTask(runtime, task, member, plan, meeting) {
       harnessDir,
       dshHome: runtime.store.homeDir,
       skillMode: skillAccess.mode,
+      brainType: (member.brain && member.brain.type) || (agent.brain && agent.brain.type) || 'dsh-acp',
       workspace,
       sessionsRoot,
       provider: memberProvider(member, agent) === 'deepseek' ? 'deepseek-official' : memberProvider(member, agent),
@@ -1174,7 +1227,9 @@ async function runCluster(projectInput, handlers = {}) {
   if (!project.members.length) throw new Error('项目至少需要一名员工')
   const policy = GOVERNANCE_POLICIES[project.mode] || GOVERNANCE_POLICIES.hierarchy
   const runId = handlers.runId || `run-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`
-  const runtime = createRuntime(project, handlers, store, runId)
+  const runController = new AbortController()
+  const runSignal = handlers.signal ? AbortSignal.any([handlers.signal, runController.signal]) : runController.signal
+  const runtime = createRuntime(project, { ...handlers, signal: runSignal }, store, runId)
   runtime.handlersCallModel = handlers.callModel
 
   const setPhase = (phase, status = 'active') => {
@@ -1184,6 +1239,8 @@ async function runCluster(projectInput, handlers = {}) {
   }
 
   try {
+    if (!handlers.callModel) validateProjectStart(project, store)
+    store.updateProject(project.id, { lastError: '' })
     const userBrief = store.listEvents(project.id, { limit: 200 })
       .filter((event) => event.type === 'user.message')
       .map((event) => event.text)
@@ -1240,7 +1297,14 @@ async function runCluster(projectInput, handlers = {}) {
     const tasks = createTasks(runtime, plan)
     let completedTasks
     if (policy.execution === 'parallel') {
-      completedTasks = await Promise.all(tasks.map((task, index) => executeTask(runtime, task, project.members[index], plan, meetingText)))
+      let firstFailure
+      const settled = await Promise.allSettled(tasks.map((task, index) => executeTask(runtime, task, project.members[index], plan, meetingText).catch((error) => {
+        firstFailure ||= error
+        runController.abort()
+        throw error
+      })))
+      if (firstFailure) throw firstFailure
+      completedTasks = settled.map((item) => item.value)
     } else {
       completedTasks = []
       for (let index = 0; index < tasks.length; index += 1) {
@@ -1330,17 +1394,18 @@ async function runCluster(projectInput, handlers = {}) {
     })
     return { runId, policy, plan, planVersion, tasks: completedTasks, final, artifact, status: 'accepted' }
   } catch (error) {
+    runController.abort()
     const cancelled = error && error.name === 'AbortError'
     try {
       store.updateProject(project.id, {
         status: cancelled ? 'cancelled' : 'failed',
         phase: cancelled ? 'cancelled' : 'failed',
         activeRunId: '',
-        lastError: cancelled ? '' : String(error.message || error),
+        lastError: cancelled ? '' : redactSensitive(error.message || error),
       })
       runtime.publish(cancelled ? 'run.cancelled' : 'run.failed', {
         phase: cancelled ? 'cancelled' : 'failed',
-        text: cancelled ? '项目运行已取消' : String(error.message || error),
+        text: cancelled ? '项目运行已取消' : redactSensitive(error.message || error),
         status: cancelled ? 'cancelled' : 'failed',
       })
     } catch (_) {}
@@ -1379,6 +1444,7 @@ module.exports = {
   emptyProjectTrash,
   callLLM,
   callLLMStream,
+  validateProjectStart,
   getProjectOverview,
   listAgents,
   listSkills,
@@ -1393,6 +1459,8 @@ module.exports = {
   saveProject,
   archiveAgent,
   assessTaskRisk,
+  outsideProjectWorkspace,
+  hasPermissionDetails,
   deleteAgent,
   draftAgent,
   listAgentVersions,

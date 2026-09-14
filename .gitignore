@@ -5,6 +5,8 @@ dist-rebuilt/
 .dpa-backups/
 app-src/
 .runtime/
+runtime/
+validation/
 .tmp-*/
 .visual-check/
 *.log

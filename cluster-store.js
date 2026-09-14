@@ -3,8 +3,9 @@
 const crypto = require('crypto')
 const fs = require('fs')
 const path = require('path')
+const { resolveDpaPaths } = require('./dpa-paths')
 
-const DEFAULT_DSH_HOME = process.env.DSH_HOME || path.join(process.env.LOCALAPPDATA || process.env.HOME || process.cwd(), 'DeepSeek-PA', 'dsh-home')
+const DEFAULT_DSH_HOME = resolveDpaPaths().dshHome
 const EVENT_CHANNELS = new Set(['room', 'worklog', 'activity', 'control', 'system', 'private'])
 
 function defaultEventChannel(type, meta = {}, phase = '') {
@@ -155,7 +156,9 @@ function normalizeProject(input, existing = null, touch = true) {
 
 class ClusterStore {
   constructor(options = {}) {
-    this.homeDir = path.resolve(options.homeDir || DEFAULT_DSH_HOME)
+    const resolvedPaths = resolveDpaPaths(options)
+    this.homeDir = resolvedPaths.dshHome
+    this.harnessDir = resolvedPaths.harnessDir
     this.clustersDir = path.join(this.homeDir, 'clusters')
     this.projectsDir = path.join(this.clustersDir, 'projects')
     this.employeesDir = path.join(this.homeDir, 'employees')

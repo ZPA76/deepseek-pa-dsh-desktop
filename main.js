@@ -10,7 +10,9 @@ const { spawn, spawnSync } = require('child_process')
 const http = require('http')
 const path = require('path')
 const fs = require('fs')
+const { resolveDpaPaths } = require('./dpa-paths')
 const { DshUpdater, readPackageVersion } = require('./dsh-updater.js')
+const { parseAuthenticatedDshUrl, redactDshTokens } = require('./dsh-web-auth.js')
 const { createCapabilityRegistry } = require('./capability-registry.js')
 const { createGitHubAuth } = require('./github-auth.js')
 const { selectClusterRuntime, detectHarnessTeam } = require('./harness-team-adapter.js')
@@ -21,15 +23,10 @@ if (process.platform === 'win32') app.setAppUserModelId('com.deepseek.pa')
 
 // 集群项目房间与统一治理引擎
 let clusterEngine = null
-try {
-  clusterEngine = require('./cluster-engine.js')
-} catch (e) {
-  console.error('集群引擎加载失败：', e.message)
-}
 
 const SERVER_URL = process.env.DSH_DESKTOP_URL || 'http://127.0.0.1:3080'
-const LEGACY_HARNESS_DIR = process.env.DSH_DESKTOP_LEGACY_HARNESS_DIR || path.join(process.env.HOME || process.env.USERPROFILE || process.cwd(), 'deepseek-harness')
-const DPA_SOURCE_ROOT = __dirname
+const DPA_DEFAULT_PATHS = resolveDpaPaths({ appDataDir: process.env.LOCALAPPDATA || app.getPath('appData') })
+const DPA_USER_ROOT = DPA_DEFAULT_PATHS.userRoot
 
 function isHarnessRuntime(directory) {
   try {
@@ -45,18 +42,23 @@ function resolveHarnessDir() {
   const candidates = [
     path.join(path.dirname(process.execPath), 'runtime', 'harness'),
     path.join(__dirname, 'runtime', 'harness'),
-    path.join(DPA_SOURCE_ROOT, 'runtime', 'harness'),
-    LEGACY_HARNESS_DIR,
+    path.join(DPA_USER_ROOT, 'runtime', 'harness'),
   ]
-  return candidates.find(isHarnessRuntime) || path.join(DPA_SOURCE_ROOT, 'runtime', 'harness')
+  return candidates.find(isHarnessRuntime) || path.join(DPA_USER_ROOT, 'runtime', 'harness')
 }
 
 const HARNESS_DIR = resolveHarnessDir()
 // 统一传给集群 ACP 员工，确保桌面 UI 与员工执行使用同一份托管 DSH。
 process.env.DSH_DESKTOP_HARNESS_DIR = HARNESS_DIR
 const STARTUP_TIMEOUT_MS = Number(process.env.DSH_DESKTOP_STARTUP_TIMEOUT_MS || 180000)
-const DSH_HOME_DIR = process.env.DSH_DESKTOP_DSH_HOME || path.join(process.env.LOCALAPPDATA || process.env.HOME || process.cwd(), 'DeepSeek-PA', 'dsh-home')
-const DATA_DIR = process.env.DSH_DESKTOP_DATA_DIR || path.join(process.env.LOCALAPPDATA || process.env.HOME || process.cwd(), 'DeepSeek-PA', 'data')
+const DSH_HOME_DIR = DPA_DEFAULT_PATHS.dshHome
+process.env.DSH_HOME = DSH_HOME_DIR
+try {
+  clusterEngine = require('./cluster-engine.js')
+} catch (e) {
+  console.error('集群引擎加载失败：', e.message)
+}
+const DATA_DIR = DPA_DEFAULT_PATHS.dataDir
 
 const DIAGNOSTIC_LOG_MAX_BYTES = 2 * 1024 * 1024
 function writeDiagnostic(kind, error, extra = '') {
@@ -84,7 +86,7 @@ const capabilityRegistry = createCapabilityRegistry({
   githubAuth,
 })
 
-// 缓存与数据全部落在 Z 盘：C 盘 AppData 零占用
+// 业务数据独立于安装目录；支持通过环境变量迁移到用户选择的磁盘。
 app.setPath('userData', DATA_DIR)
 app.setPath('sessionData', path.join(DATA_DIR, 'session'))
 
@@ -114,13 +116,17 @@ let tray = null
 let isQuitting = false
 let serverStopRequested = false
 let serverErrorTail = ''
+let serverOutputBuffer = ''
+let authenticatedServerUrl = null
 let serverRestartAttempts = 0
 let serverRestartTimer = null
 let rendererRecoveryAttempts = 0
 let rendererRecoveryTimer = null
 let updateCheckPromise = null
 let updateInstallPromise = null
-const dshUpdater = new DshUpdater({ harnessDir: HARNESS_DIR })
+let managedServerMarkerPending = false
+const MANAGED_SERVER_MARKER = path.join(DATA_DIR, 'dsh-server-process.json')
+const dshUpdater = new DshUpdater({ harnessDir: HARNESS_DIR, logDir: path.join(DATA_DIR, 'logs') })
 
 function applyWindowZoom(appearanceState) {
   if (!mainWindow || mainWindow.isDestroyed()) return
@@ -239,6 +245,15 @@ function startClusterProject(project) {
   const existing = activeRun(project.id)
   if (existing) return { started: false, reason: 'already-running', runId: existing.runId }
 
+  try { engine.validateProjectStart(project) } catch (error) {
+    const message = String(error.message || error)
+    engine.saveProject({ ...project, status: 'failed', phase: 'failed', activeRunId: '', lastError: message })
+    const event = engine.appendEvent(project.id, { type: 'run.failed', channel: 'control', purpose: 'diagnostic', visibility: 'owner', text: message, status: 'failed' })
+    sendClusterEvent(event)
+    writeDiagnostic('cluster-preflight-failed', message, { projectId: project.id })
+    throw error
+  }
+
   const selectedRuntime = selectClusterRuntime(HARNESS_DIR, project.executionRuntime)
   const saved = engine.saveProject({ ...project, executionRuntime: selectedRuntime.id })
   const runId = `run-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`
@@ -259,6 +274,7 @@ function startClusterProject(project) {
     notify('DPA 项目等待已结束', `${saved.name} 已通过验收`)
     return result
   }).catch((error) => {
+    writeDiagnostic('cluster-run-ended', error, { projectId: saved.id, runId })
     if (error && error.name !== 'AbortError') notify('DPA 项目运行失败', `${saved.name}：${error.message || error}`)
     return { status: error && error.name === 'AbortError' ? 'cancelled' : 'failed', error: String(error && error.message || error) }
   }).finally(() => {
@@ -567,6 +583,7 @@ async function installDshUpdate(checkResult) {
       currentVersion: result.after.version,
       message: '更新完成',
       backupBranch: result.backupBranch,
+      logFile: result.logFile,
     })
     if (mainWindow && !mainWindow.isDestroyed()) await mainWindow.loadFile('shell.html')
     await dialog.showMessageBox(mainWindow, {
@@ -577,6 +594,7 @@ async function installDshUpdate(checkResult) {
     })
     return result
   })().catch(async (error) => {
+    writeDiagnostic('dsh-update-failed', error, { targetTag: checkResult && checkResult.latestTag, logFile: path.join(DATA_DIR, 'logs', 'dsh-updater.log') })
     sendUpdateState({ status: 'error', error: error.message || String(error) })
     if (!(await isUp(1000))) ensureServer()
     dialog.showErrorBox('DSH 更新失败', error.message || String(error))
@@ -605,11 +623,13 @@ async function checkDshUpdates(options = {}) {
       }
       return result
     }
+    // 后台检查只更新状态，不主动弹窗或开始安装。更新必须由用户显式触发。
+    if (!interactive) return result
     const answer = await dialog.showMessageBox(mainWindow, {
       type: 'info',
       title: '发现 DSH 更新',
       message: '发现新版 DSH ' + result.latestVersion,
-      detail: '当前版本：' + result.version + '\n更新前会建立 Git 回退分支；员工、项目和会话数据不会被改动。',
+      detail: '当前版本：' + result.version + '\n更新前会建立 Git 回退分支；员工、项目和会话数据不会被改动。\n更新完成前请不要退出 DPA 或关闭电脑；若意外中断，下次启动会自动恢复。',
       buttons: ['立即更新', '稍后'],
       defaultId: 0,
       cancelId: 1,
@@ -618,6 +638,7 @@ async function checkDshUpdates(options = {}) {
     if (answer.response === 0) await installDshUpdate(result)
     return result
   })().catch((error) => {
+    writeDiagnostic('dsh-update-check-failed', error, { logFile: path.join(DATA_DIR, 'logs', 'dsh-updater.log') })
     sendUpdateState({ status: 'error', error: error.message || String(error) })
     if (interactive) dialog.showErrorBox('检查 DSH 更新失败', error.message || String(error))
     throw error
@@ -627,6 +648,7 @@ async function checkDshUpdates(options = {}) {
   return updateCheckPromise
 }
 
+ipcMain.handle('dsh:authenticated-url', () => authenticatedServerUrl || SERVER_URL)
 ipcMain.handle('dsh:update-status', () => localDshStatus())
 ipcMain.handle('dsh:update-check', () => checkDshUpdates({ interactive: true }))
 ipcMain.handle('dsh:update-install', async (_event, payload) => {
@@ -634,6 +656,76 @@ ipcMain.handle('dsh:update-install', async (_event, payload) => {
   return installDshUpdate(checkResult)
 })
 // ── 服务管理 ──────────────────────────────────────────────────────────────
+function listenerPidForServer() {
+  if (process.platform !== 'win32') return null
+  const target = new URL(SERVER_URL)
+  const port = Number(target.port || 80)
+  const result = spawnSync('netstat.exe', ['-ano', '-p', 'tcp'], {
+    encoding: 'utf8',
+    windowsHide: true,
+  })
+  if (result.error || result.status !== 0) return null
+  for (const line of String(result.stdout || '').split(/\r?\n/)) {
+    const fields = line.trim().split(/\s+/)
+    if (fields.length < 5 || fields[0].toUpperCase() !== 'TCP' || fields[3].toUpperCase() !== 'LISTENING') continue
+    const localAddress = fields[1]
+    if (!localAddress.endsWith(':' + port)) continue
+    const pid = Number(fields[4])
+    if (Number.isInteger(pid) && pid > 0) return pid
+  }
+  return null
+}
+
+function readManagedServerMarker() {
+  if (!fs.existsSync(MANAGED_SERVER_MARKER)) return null
+  try {
+    const marker = JSON.parse(fs.readFileSync(MANAGED_SERVER_MARKER, 'utf8'))
+    if (marker.version !== 1 || !Number.isInteger(marker.pid) || marker.pid <= 0) throw new Error('invalid marker fields')
+    return marker
+  } catch (error) {
+    writeDiagnostic('managed-server-marker-invalid', error, { markerPath: MANAGED_SERVER_MARKER })
+    fs.rmSync(MANAGED_SERVER_MARKER, { force: true })
+    return null
+  }
+}
+
+function recordManagedServerListener() {
+  if (!managedServerMarkerPending || process.platform !== 'win32') return false
+  const pid = listenerPidForServer()
+  if (!pid) return false
+  const marker = {
+    version: 1,
+    pid,
+    serverUrl: SERVER_URL,
+    harnessDir: path.resolve(HARNESS_DIR),
+    recordedAt: new Date().toISOString(),
+  }
+  const temporary = MANAGED_SERVER_MARKER + '.tmp'
+  fs.mkdirSync(path.dirname(MANAGED_SERVER_MARKER), { recursive: true })
+  fs.writeFileSync(temporary, JSON.stringify(marker, null, 2), 'utf8')
+  fs.renameSync(temporary, MANAGED_SERVER_MARKER)
+  managedServerMarkerPending = false
+  return true
+}
+
+function stopManagedServerFromMarker() {
+  const marker = readManagedServerMarker()
+  if (!marker || process.platform !== 'win32') return false
+  const listenerPid = listenerPidForServer()
+  const sameRuntime = path.resolve(String(marker.harnessDir || '')).toLowerCase() === path.resolve(HARNESS_DIR).toLowerCase()
+  const owned = marker.serverUrl === SERVER_URL && sameRuntime && listenerPid === marker.pid
+  let stopped = false
+  if (owned) {
+    const result = spawnSync('taskkill.exe', ['/PID', String(marker.pid), '/T', '/F'], { windowsHide: true })
+    stopped = !result.error && result.status === 0
+    if (!stopped) writeDiagnostic('managed-server-stop-failed', result.error || result.stderr || result.stdout, { marker })
+  } else {
+    writeDiagnostic('managed-server-marker-stale', '', { marker, listenerPid })
+  }
+  fs.rmSync(MANAGED_SERVER_MARKER, { force: true })
+  return stopped
+}
+
 function isUp(timeoutMs = 3000) {
   return new Promise((resolve) => {
     let settled = false
@@ -654,17 +746,30 @@ async function waitUntilUp() {
   while (Date.now() - start < STARTUP_TIMEOUT_MS) {
     if (await isUp()) {
       serverRestartAttempts = 0
+      recordManagedServerListener()
       return true
     }
     await new Promise((r) => setTimeout(r, 1500))
   }
   const ready = await isUp()
-  if (ready) serverRestartAttempts = 0
+  if (ready) {
+    serverRestartAttempts = 0
+    recordManagedServerListener()
+  }
   return ready
 }
 
 function appendServerError(chunk) {
-  serverErrorTail = (serverErrorTail + chunk.toString()).slice(-8000)
+  const output = chunk.toString()
+  serverOutputBuffer = (serverOutputBuffer + output).slice(-32768)
+  const discovered = parseAuthenticatedDshUrl(serverOutputBuffer, SERVER_URL)
+  if (discovered && discovered !== authenticatedServerUrl) {
+    authenticatedServerUrl = discovered
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      try { mainWindow.webContents.send('dsh:authenticated-url', discovered) } catch (_) {}
+    }
+  }
+  serverErrorTail = (serverErrorTail + redactDshTokens(output)).slice(-8000)
 }
 
 function serverLaunchArgs() {
@@ -682,6 +787,9 @@ function ensureServer() {
   if (!isHarnessRuntime(HARNESS_DIR)) throw new Error('DPA 托管 DSH 运行时不存在：' + HARNESS_DIR)
   serverStopRequested = false
   serverErrorTail = ''
+  serverOutputBuffer = ''
+  authenticatedServerUrl = null
+  managedServerMarkerPending = true
   const launched = spawn(process.env.ComSpec || 'cmd.exe', serverLaunchArgs(), {
     cwd: HARNESS_DIR,
     windowsHide: true,
@@ -710,6 +818,7 @@ function ensureServer() {
   })
   launched.on('error', (error) => {
     appendServerError(error.message || String(error))
+    managedServerMarkerPending = false
     if (serverProcess === launched) serverProcess = null
   })
 }
@@ -720,12 +829,15 @@ function stopServerSync() {
   clearTimeout(serverRestartTimer)
   serverRestartTimer = null
   serverProcess = null
-  if (!target || !target.pid || target.exitCode !== null) return
-  if (process.platform === 'win32') {
-    spawnSync('taskkill.exe', ['/PID', String(target.pid), '/T', '/F'], { windowsHide: true })
-  } else {
-    try { target.kill('SIGTERM') } catch (_) {}
+  if (target && target.pid && target.exitCode === null) {
+    if (process.platform === 'win32') {
+      spawnSync('taskkill.exe', ['/PID', String(target.pid), '/T', '/F'], { windowsHide: true })
+    } else {
+      try { target.kill('SIGTERM') } catch (_) {}
+    }
   }
+  stopManagedServerFromMarker()
+  managedServerMarkerPending = false
 }
 
 async function stopServer() {
@@ -746,7 +858,7 @@ function buildMenu() {
         { label: '重新加载', accelerator: 'CmdOrCtrl+R', click: () => mainWindow && mainWindow.webContents.reload() },
         { label: '开发者工具', accelerator: 'F12', click: () => mainWindow && mainWindow.webContents.toggleDevTools() },
         { type: 'separator' },
-        { label: '在浏览器中打开', click: () => shell.openExternal(SERVER_URL) },
+        { label: '在浏览器中打开', click: () => shell.openExternal(authenticatedServerUrl || SERVER_URL) },
       ],
     },
     {
@@ -850,6 +962,26 @@ async function createWindow() {
   await mainWindow.loadFile('loading.html')
   mainWindow.show()
 
+  // 服务启动前恢复被断电、强退或系统终止打断的更新事务。
+  const recovery = await dshUpdater.recoverInterruptedUpdate((event) => {
+    sendUpdateState({ status: event.phase || 'recovering', message: event.message || '正在恢复未完成的 DSH 更新…' })
+  })
+  if (recovery.recovered) {
+    writeDiagnostic('dsh-interrupted-update-recovered', '', {
+      restored: recovery.restored,
+      requestedTag: recovery.requestedTag,
+      logFile: path.join(DATA_DIR, 'logs', 'dsh-updater.log'),
+    })
+  }
+
+  // 上次崩溃遗留的托管服务无法重新取得进程内 token；先安全重启以生成新的认证 URL。
+  if (!serverProcess && readManagedServerMarker() && await isUp(1000)) {
+    stopManagedServerFromMarker()
+    const deadline = Date.now() + 10000
+    while (Date.now() < deadline && await isUp(300)) {
+      await new Promise((resolve) => setTimeout(resolve, 250))
+    }
+  }
   if (!(await isUp())) ensureServer()
   const ok = await waitUntilUp()
   if (!ok) {

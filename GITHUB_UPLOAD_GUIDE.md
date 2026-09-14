@@ -1,109 +1,93 @@
-# DPA 上传 GitHub 操作指南
+# DPA 0.6.0：更新现有 GitHub 仓库
 
-这份目录就是完整的 GitHub 仓库上传目录：源码、页面、图标、测试、构建脚本、文档、许可证和 GitHub 社区配置都放在这里。它不包含不应进入源码仓库的本机用户数据、凭证、`node_modules`、构建产物、缓存和旧版备份。
+当前仓库是 [ZPA76/deepseek-pa-dsh-desktop](https://github.com/ZPA76/deepseek-pa-dsh-desktop)。这次更新沿用已有仓库和历史，不需要再创建同名仓库，也不要把源码目录里的 `.git` 删除后重新初始化。
 
-## 推荐仓库名称
+本目录用于提交源码、双语文档、测试、构建脚本和经过检查的演示截图。桌面安装包单独放到 GitHub Releases；用户项目、凭据、日志、缓存和运行时目录不进入源码仓库。范围见 [公开导出清单](PUBLIC_EXPORT_MANIFEST.md)。
 
-首选：`deepseek-pa`
+## 1. 检查准备上传的内容
 
-仓库显示标题建议：
-
-> DeepSeek-PA (DPA) — a modular desktop workspace for DeepSeek Harness
-
-仓库简介建议直接使用：
-
-> Unofficial modular DeepSeek Harness desktop workspace with separate Chat and Agent experiences, extensions, Skills, application-wide themes, and supervised multi-agent cluster projects.
-
-推荐 Topics：
-
-```text
-deepseek-pa
-deepseek-harness
-dsh
-ai-agents
-multi-agent-systems
-agent-orchestration
-agent-skills
-electron
-desktop-app
-local-first
-windows
-```
-
-只有当仓库同时提供可安装的 DSH 插件时，才增加 `dsh-plugin`；不要为了曝光添加不准确的标签。
-
-`deepseek-harness-desktop` 这个名称已经有多个社区项目使用，容易混淆。`deepseek-pa` 更短，也能把 DPA 作为独立项目品牌建立起来。
-
-## 创建仓库时怎么选
-
-1. 在 GitHub 新建 Public repository，名称填 `deepseek-pa`。
-2. 不要勾选 Add README、Add `.gitignore`、Choose a license，因为本目录已经准备好了这些文件。
-3. 创建后进入仓库的 Settings/About，填入上面的描述和 Topics。
-4. 创建完成后复制仓库页面显示的 HTTPS 地址。
-5. 在本目录空白处按住 Shift 点击鼠标右键，选择“在此处打开 PowerShell”，然后执行：
+在本目录打开 PowerShell：
 
 ```powershell
-cd '本目录的完整路径'
-git init
-git branch -M main
-git add .
-git commit -m "feat: publish DeepSeek-PA desktop workspace"
-git remote add origin https://github.com/ZPA76/deepseek-pa-dsh-desktop.git
-git push -u origin main
-```
-
-本仓库地址已经设置为 `ZPA76/deepseek-pa-dsh-desktop`。如果 GitHub 要求登录，按浏览器提示完成授权；GitHub 已不再接受账户密码作为命令行推送密码。此目录不会自动上传，也不会替你登录 GitHub。
-
-上传成功后刷新仓库网页，应当能看到 `README.md`、`main.js`、`package.json`、`docs`、`scripts`、`test` 和 `.github`。看不到这些文件就说明还没有成功 push。
-
-## GitHub 的基本逻辑
-
-- Repository：项目主页，代码、文档、Issue、Discussion 和 Release 都在这里。
-- Commit：一次本地变更记录；可以理解为一个可追踪的版本节点。
-- Push：把本地 commit 上传到 GitHub。
-- Issue：具体的 Bug、需求或任务。
-- Discussion：开放交流、方案讨论和项目展示。
-- Release：从 Git tag 发布的可下载版本，适合放 `.exe`/`.zip`；GitHub 官方也建议用 Release 分发软件和二进制文件。
-- Star：收藏/关注项目，不等于下载；Fork：复制仓库并可独立修改；Watch：接收更新通知。
-
-## DSH 社区应该怎么参与
-
-DSH 有官方 GitHub Discussions、官方 Discord，以及官方仓库的 `Show Your Plugins!` 分类。DPA 不是 DeepSeek 官方项目，也不是单一 DSH 插件，所以不要把代码直接上传到官方仓库，也不要暗示官方背书。
-
-推荐顺序：
-
-1. 先把 `deepseek-pa` 仓库 README、截图、Release 和安装说明做好。
-2. 在官方 DSH Discussions 的 General 或 Show Your Plugins! 发一篇简短介绍，明确写“unofficial community desktop companion”。
-3. 在帖子中给出 GitHub 链接、30 秒 GIF/截图、当前版本、安装方法和已知限制。
-4. 关注官方 `dsh-plugin` Topic；如果以后把 DPA 的某部分拆成真正可安装的 DSH 插件，再单独做插件仓库并使用该 Topic。
-5. 后续用户反馈放在自己的 Issue/Discussion，DSH 本体 Bug 再回报官方仓库。
-
-## 曝光度的现实做法
-
-GitHub 不会因为创建仓库就自动给流量。比“标题夸张”更有效的是：
-
-- README 首屏在 10 秒内说明“它解决什么问题”；
-- 放一张清晰的集群项目截图或 20–40 秒 GIF；
-- 给出可复制的安装命令和一个最小演示项目；
-- 每次发布使用 `v0.5.1` 这样的 tag 和 Release notes；
-- 用英文关键词 + 中文说明；
-- 真实回应 Issue，不刷星、不互相灌水；
-- 每次更新写清楚兼容的 DSH 版本、Windows 版本和已知限制；
-- 先讲清 DPA 的总定位——模块化 DSH 桌面工作台——再分别展示 Chat/Agent 分离、主题与字体、扩展与 Skill、集群协作、人工审批和本地优先等亮点。
-
-第一阶段的目标不要定成“马上获得很多 Star”，而是让陌生用户能够安装、看懂、复现并提出第一条有效反馈。
-
-## 发布桌面安装包
-
-不要把本地 `dist` 整个目录提交到 Git。正式构建后，在 GitHub 的 Releases 页面创建 `v0.5.1`，上传 Windows 安装包或 portable ZIP，并在 Release notes 中写：兼容的 DSH 版本、安装步骤、校验值和已知问题。源码仓库只保留构建脚本与说明。
-
-## 上传前最后检查
-
-```powershell
-rg -n "DEEPSEEK_API_KEY|ZHIPU_API_KEY|credentials|token|password|Z:\\|C:\\Users" .
-Get-ChildItem -Force
+git status --short
+git remote -v
+git branch --show-current
+git diff --stat
+git diff -- README.md README.zh-CN.md package.json
+npm ci
 npm run check
 npm test
 ```
 
-如果搜索结果出现真实凭证、个人目录、项目数据或日志，不要上传；先删除或改为环境变量/占位符。
+`origin` 应指向上面的仓库。不要在发现地址不符时继续推送；先核对自己所在目录。截图与文档已使用合成数据，最新源码和安装包仍必须分别验证。
+
+隐私检查只先列出匹配文件，避免把潜在密钥回显到终端记录：
+
+```powershell
+git status --short --untracked-files=all
+rg -l --hidden --glob '!.git/**' --glob '!node_modules/**' --glob '!package-lock.json' '(sk-[A-Za-z0-9]{20,}|ghp_[A-Za-z0-9]+|github_pat_[A-Za-z0-9_]+)' .
+```
+
+没有命中不等于完成安全审计；还应检查文件列表，确认没有 `.credentials.yaml`、`.env`、token 文件、真实项目、日志、缓存、旧备份和本机截图。API 字段名与示例占位符属于正常源码，不能见到 `token` 一词就删除。
+
+## 2. 提交并推送源码
+
+检查完成后再执行：
+
+```powershell
+git add .
+git diff --cached --stat
+git diff --cached --check
+git commit -m "feat: release DPA 0.6.0 desktop improvements"
+git push origin main
+```
+
+若远端已有新提交导致推送被拒绝，先检查分歧并合并，不使用强制推送覆盖他人的修改。遇到 GitHub 认证提示时，通过浏览器或已配置的 Git 凭据管理器登录，不把访问令牌写进仓库或 remote URL。
+
+上传后检查首页能打开双语 README 和五张图片，`package.json` 为 0.6.0，CI 检查通过。源码推送和 Release 安装包发布是两件事。
+
+## 3. 创建 0.6.0 预发布
+
+进入仓库 **Releases → Draft a new release**，选择已经通过检查的 `main` 提交，并建立标签 `v0.6.0`。若该标签已经存在，先核对它对应的提交，不能把旧标签静默移到新代码。
+
+标题建议：
+
+> DeepSeek-PA v0.6.0 — Paginated discovery, reliable project startup and refreshed workspace
+
+将 [0.6.0 更新说明](docs/RELEASE_NOTES-v0.6.0.md) 的双语正文填入 Release notes。选择 **Pre-release**（开发者预览）。GitHub 界面标签可能调整，以其“非生产就绪版本”含义为准。
+
+在附件区域上传经过验证的以下文件；文件名应与实际产物及校验清单一致：
+
+| 文件 | 用途 |
+| --- | --- |
+| `DeepSeek-PA-Setup-0.6.0-win-x64.exe` | Windows 安装版 |
+| `DeepSeek-PA-0.6.0-win-x64-portable.zip` | 解压即启动的桌面程序；仍需另备 DSH |
+| `INSTALL-WINDOWS.md` | 安装说明，从 docs 中的同名文件复制 |
+| `SHA256SUMS.txt` | 对实际上传的安装版与便携版计算 SHA256 |
+
+不要把旧版 0.5.1 文件改名成 0.6.0，不上传 `dist` 整目录、开发用 `node_modules`、真实配置或本机验证日志。文件上传完成后预览正文，确认版本与附件吻合，再发布。GitHub 自动生成的 Source code 压缩包是源码，不是桌面安装包。
+
+本版本仍需单独准备 DSH，已测试 DSH 0.1.5-rc.2。不要在 Release 文案中写“内置 DSH”或“无需配置”。
+
+## 4. About 与 Topics
+
+双语简介：
+
+> 基于 DeepSeek Harness（DSH）的非官方模块化 Windows 桌面工作台，集成独立 Chat/Agent、扩展与主题、员工培养和可监督多智能体项目。Unofficial modular desktop for DSH with separate Chat/Agent, extensions, themes and supervised multi-agent projects.
+
+建议 Topics：
+
+```text
+deepseek-pa deepseek-harness dsh electron desktop-app windows
+ai-agents multi-agent-systems agent-orchestration agent-skills local-first
+```
+
+仓库名称保持 `deepseek-pa-dsh-desktop`。DPA 目前不是一个单独可安装的 DSH 插件，不为了曝光添加容易误导的 `dsh-plugin` 标签。
+
+## 5. 发布后核对与交流
+
+使用浏览器打开公开仓库，检查图片、双语切换、下载和安装链接。在干净测试环境验证下载的安装包及其哈希值，不以开发目录运行成功代替发行验收。
+
+如要在 [DSH Discussions](https://github.com/deepseek-ai/deepseek-harness/discussions) 介绍项目，先阅读当前版规，选择适合社区作品展示的分类，明确注明“独立非官方桌面项目”，附自己的仓库、Release 和演示链接。源代码仍放在自己的仓库，不直接上传到 DSH 官方仓库。
+
+说明可以介绍模块化桌面、Chat/Agent 分离、可定制外观、扩展发现和集群审批，避免只把 DPA 描述成“集群插件”。社区发帖属于单独的对外操作；本文件中的步骤不会自动发布任何内容。

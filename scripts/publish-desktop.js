@@ -5,6 +5,7 @@
 const fs = require('fs')
 const path = require('path')
 const { spawnSync } = require('child_process')
+const { verifyRelease } = require('./release-integrity')
 
 const root = path.resolve(__dirname, '..')
 const distDir = path.join(root, 'dist')
@@ -21,7 +22,7 @@ function run(command, args) {
   const result = spawnSync(command, args, {
     cwd: root,
     stdio: 'inherit',
-    windowsHide: false,
+    windowsHide: true,
     shell: false,
   })
   if (result.error) throw result.error
@@ -56,11 +57,25 @@ function timestamp() {
   return new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14)
 }
 
+function renameWithRetry(source, target, attempts = 10) {
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      fs.renameSync(source, target)
+      return
+    } catch (error) {
+      const retryable = error && (error.code === 'EPERM' || error.code === 'EBUSY' || error.code === 'EACCES')
+      if (!retryable || attempt === attempts) throw error
+      const delayMs = Math.min(500 * attempt, 3000)
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delayMs)
+    }
+  }
+}
+
 function moveToBackup(source, label, stamp) {
   if (!fs.existsSync(source)) return null
   fs.mkdirSync(backupRoot, { recursive: true })
   const target = path.join(backupRoot, `${label}-${stamp}`)
-  fs.renameSync(source, target)
+  renameWithRetry(source, target)
   return target
 }
 
@@ -123,13 +138,15 @@ function createShortcuts() {
   }
   return links
 }
-function writeReleaseMetadata(version, stamp) {
+function writeReleaseMetadata(version, stamp, integrity) {
   const metadata = {
     product: 'DeepSeek-PA',
     version,
     publishedAt: new Date().toISOString(),
     executable: 'win-unpacked/DeepSeek-PA.exe',
     updatePolicy: 'atomic-staging-with-rollback',
+    archiveSha256: integrity.archiveSha256,
+    files: integrity.files,
   }
   fs.writeFileSync(path.join(distDir, 'release.json'), `${JSON.stringify(metadata, null, 2)}\n`, 'utf8')
   return stamp
@@ -143,20 +160,33 @@ function main() {
 
   const version = readVersion()
   const stamp = timestamp()
-  if (fs.existsSync(stagingDir)) fs.rmSync(stagingDir, { recursive: true, force: true })
+  const prepared = process.argv.includes('--prepared')
+  if (!prepared && fs.existsSync(stagingDir)) moveToBackup(stagingDir, 'unpublished-staging', stamp)
 
   console.log(`开始构建 DPA ${version}（暂存目录：${stagingDir}）`)
   const npmCommand = process.platform === 'win32' ? (process.env.ComSpec || 'cmd.exe') : 'npm'
   const npmPrefix = process.platform === 'win32' ? ['/d', '/s', '/c'] : []
   const npmArgs = (script) => process.platform === 'win32' ? [...npmPrefix, `npm run ${script}`] : ['run', script]
-  run(npmCommand, npmArgs('sync:app-src'))
-  run(npmCommand, npmArgs('dist:dir'))
+  if (!prepared) {
+    run(npmCommand, npmArgs('check'))
+    run(npmCommand, npmArgs('test'))
+    run(npmCommand, npmArgs('sync:app-src'))
+    run(npmCommand, npmArgs('dist:dir'))
+  }
   assertRelease(stagingDir)
+  const integrity = verifyRelease(root, stagingDir)
 
   const oldDist = moveToBackup(distDir, 'desktop-dist-legacy', stamp)
   const oldRebuilt = moveToBackup(legacyDir, 'desktop-dist-rebuilt-legacy', stamp)
-  fs.renameSync(stagingDir, distDir)
-  writeReleaseMetadata(version, stamp)
+  try {
+    renameWithRetry(stagingDir, distDir)
+    writeReleaseMetadata(version, stamp, integrity)
+    verifyRelease(root, distDir, { requireMetadata: true })
+  } catch (error) {
+    if (fs.existsSync(distDir)) moveToBackup(distDir, 'failed-promotion', stamp)
+    if (oldDist && fs.existsSync(oldDist)) renameWithRetry(oldDist, distDir)
+    throw error
+  }
   const shortcuts = createShortcuts()
 
   console.log(`DPA ${version} 已发布到：${distDir}`)

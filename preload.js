@@ -14,6 +14,15 @@ contextBridge.exposeInMainWorld('harnessDesktop', {
   notify: (title, body) => {
     try { ipcRenderer.send('dpa:notify', { title: String(title || ''), body: String(body || '') }) } catch (_) {}
   },
+  server: {
+    authenticatedUrl: () => ipcRenderer.invoke('dsh:authenticated-url'),
+    onAuthenticatedUrl: (callback) => {
+      if (typeof callback !== 'function') return () => {}
+      const listener = (_event, url) => callback(String(url || ''))
+      ipcRenderer.on('dsh:authenticated-url', listener)
+      return () => ipcRenderer.removeListener('dsh:authenticated-url', listener)
+    },
+  },
   update: {
     status: () => ipcRenderer.invoke('dsh:update-status'),
     check: () => ipcRenderer.invoke('dsh:update-check'),

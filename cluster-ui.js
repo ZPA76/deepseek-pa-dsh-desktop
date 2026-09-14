@@ -18,6 +18,8 @@ const state = {
   pending: new Map(),
   refreshTimer: null,
   refreshBusy: false,
+  startingProjectId: '',
+  startError: '',
 }
 
 const MAX_RENDERED_EVENTS = 2000
@@ -971,6 +973,7 @@ async function openProject(projectId) {
       request('listSkills', { projectId }).catch(() => state.skillCatalog),
     ])
     state.current = overview.project
+    state.startError = ''
     state.overview = overview
     state.events = events
     state.runState = runState
@@ -1123,7 +1126,7 @@ function messageNode(event) {
     head.append(node('span', 'message-time', formatTime(event.timestamp)))
     body.append(head)
   }
-  body.append(node('div', 'message-text', event.text || ''))
+  body.append(node('div', `message-text${event.pending && !event.text ? ' pending' : ''}`, event.text || (event.pending ? '正在准备公开发言…' : '')))
   wrapper.append(body)
   return wrapper
 }
@@ -1219,11 +1222,51 @@ function renderApproval() {
 function renderRunActions() {
   const running = Boolean(state.runState && state.runState.running)
   const paused = Boolean(state.runState && state.runState.paused)
+  const starting = state.startingProjectId === state.current.id
   byId('run-start').classList.toggle('hidden', running)
   byId('run-pause').classList.toggle('hidden', !running || paused)
   byId('run-resume').classList.toggle('hidden', !running || !paused)
   byId('run-cancel').classList.toggle('hidden', !running)
-  byId('run-start').disabled = state.current.status === 'accepted'
+  byId('run-start').disabled = state.current.status === 'accepted' || starting
+  byId('run-start').textContent = starting ? '正在启动…' : (state.current.status === 'failed' || state.current.status === 'cancelled' ? '重试项目' : '开始项目')
+  renderRunFeedback()
+}
+
+function renderRunFeedback() {
+  let box = byId('run-feedback')
+  if (!box) {
+    box = node('section', 'run-feedback hidden')
+    box.id = 'run-feedback'
+    box.setAttribute('aria-live', 'polite')
+    const grid = document.querySelector('.room-grid')
+    if (!grid) return
+    grid.before(box)
+  }
+  clear(box)
+  const starting = state.startingProjectId === state.current.id
+  const failed = state.current.status === 'failed' || Boolean(state.startError)
+  const cancelled = state.current.status === 'cancelled'
+  box.className = `run-feedback ${starting ? 'pending' : failed ? 'error' : 'info'}`
+  box.classList.toggle('hidden', !starting && !failed && !cancelled)
+  if (!starting && !failed && !cancelled) return
+  box.append(node('div', 'run-feedback-title', starting ? '正在检查员工与运行环境' : failed ? '本次运行未完成' : '本次运行已取消'))
+  const message = starting ? '启动后员工会在下方参加项目会议。' : failed ? (state.startError || state.current.lastError || '运行已停止，请检查模型设置或操作日志后重试。') : '聊天、任务与交付物已保留，可重新启动项目。'
+  const detailText = node('div', 'run-feedback-detail', message)
+  detailText.tabIndex = 0
+  detailText.setAttribute('aria-label', '运行情况详情')
+  box.append(detailText)
+  if (!starting && failed) {
+    const actions = node('div', 'run-feedback-actions')
+    const retry = node('button', 'btn btn-primary', '重新启动项目')
+    retry.type = 'button'
+    retry.addEventListener('click', startProject)
+    actions.append(retry)
+    const detail = node('button', 'btn', '查看运行错误')
+    detail.type = 'button'
+    detail.addEventListener('click', () => openDetail('运行错误', message))
+    actions.append(detail)
+    box.append(actions)
+  }
 }
 
 function renderInspector() {
@@ -1362,17 +1405,32 @@ async function sendMessage(event) {
 }
 
 async function startProject() {
-  if (!state.current) return
+  if (!state.current || state.startingProjectId === state.current.id) return
   if (!state.events.some((event) => canonicalType(event) === 'user.message')) {
     byId('composer-input').focus()
     return toast('请先在聊天框介绍这次要做的具体任务，再开始项目', 'error')
   }
+  const projectId = state.current.id
+  state.startingProjectId = projectId
+  state.startError = ''
+  renderRunActions()
   try {
     const result = await request('startProject', { project: state.current })
-    state.runState = { running: true, runId: result.runId, paused: false }
-    renderRunActions()
-    toast(result.started ? '项目已启动，员工正在准备会议' : '项目已在运行')
-  } catch (error) { toast(error.message, 'error') }
+    if (!state.current || state.current.id !== projectId) return
+    if (!result.started && result.reason !== 'already-running') throw new Error(result.reason || '项目启动未成功')
+    await refreshCurrent(true)
+    if (state.current.status !== 'failed') toast(result.started ? '项目已启动，员工正在准备会议' : '项目已在运行')
+  } catch (error) {
+    if (state.current && state.current.id === projectId) {
+      state.startError = error.message
+      state.streams.clear()
+      await refreshCurrent(true)
+      toast(error.message, 'error')
+    }
+  } finally {
+    if (state.startingProjectId === projectId) state.startingProjectId = ''
+    if (state.current) renderRunActions()
+  }
 }
 
 async function runControl(method) {
@@ -1411,7 +1469,7 @@ function handleClusterEvent(event) {
   const type = canonicalType(event)
   const messageId = event.messageId || (event.meta && event.meta.messageId)
   if (type === 'agent.message.started' && messageId) {
-    const completed = { ...event, eventType: 'agent.message.completed', type: 'agent.message.completed', text: '' }
+    const completed = { ...event, eventType: 'agent.message.completed', type: 'agent.message.completed', text: '', pending: true }
     if (isPublicMessage(completed)) {
       state.streams.set(messageId, completed)
       while (state.streams.size > MAX_RENDERED_STREAMS) state.streams.delete(state.streams.keys().next().value)
@@ -1426,7 +1484,12 @@ function handleClusterEvent(event) {
     renderFeed()
     return
   }
-  if (type === 'agent.message.completed' && messageId) state.streams.delete(messageId)
+  if ((type === 'agent.message.completed' || type === 'agent.message.failed') && messageId) state.streams.delete(messageId)
+  if (type === 'run.failed' || type === 'run.cancelled' || type === 'run.completed') {
+    state.streams.clear()
+    state.runState = { running: false, paused: false }
+    if (type === 'run.failed') state.startError = event.text || '运行未完成'
+  }
   if (event.seq) mergeEvent(event)
   renderFeed()
   if (/^(task|approval|artifact|decision|phase|run|action|tool)\./.test(type)) setTimeout(() => refreshCurrent(false), 80)
@@ -1447,6 +1510,10 @@ async function refreshCurrent(renderAll = false) {
     state.current = overview.project
     state.overview = overview
     state.runState = runState
+    if (!runState.running && ['failed', 'cancelled', 'accepted'].includes(state.current.status)) {
+      state.streams.clear()
+      renderFeed()
+    }
     for (const event of events) mergeEvent(event)
     if (renderAll) renderRoom()
     else {

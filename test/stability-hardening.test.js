@@ -37,3 +37,12 @@ test('事件持久化使用原子写入和 fsync', () => {
   assert.match(store, /normalizeEventShape\(/)
   assert.match(store, /EVENT_CHANNELS/)
 })
+test('DPA 持久化追踪自己启动的 3080 服务并在更新前结束实际监听进程', () => {
+  const main = read('main.js')
+  assert.match(main, /dsh-server-process\.json/)
+  assert.match(main, /function listenerPidForServer\(/)
+  assert.match(main, /function recordManagedServerListener\(/)
+  assert.match(main, /function stopManagedServerFromMarker\(/)
+  assert.match(main, /listenerPid === marker\.pid/)
+  assert.match(main, /stopManagedServerFromMarker\(\)/)
+})

@@ -10,7 +10,7 @@ body:
     id: dpa-version
     attributes:
       label: DPA version
-      placeholder: "0.5.1"
+      placeholder: "例如：0.6.0 / e.g. 0.6.0"
     validations:
       required: true
   - type: input

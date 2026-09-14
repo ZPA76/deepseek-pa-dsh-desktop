@@ -2,15 +2,29 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
+[下载 Windows 版](https://github.com/ZPA76/deepseek-pa-dsh-desktop/releases) · [安装指南](docs/INSTALL-WINDOWS.md) · [0.6.0 更新说明](docs/RELEASE_NOTES-v0.6.0.md) · [反馈问题](https://github.com/ZPA76/deepseek-pa-dsh-desktop/issues)
+
+开发者预览版 **0.6.0** · Windows x64 · 已测试 **DSH 0.1.5-rc.2**
+
 **基于 DeepSeek Harness（DSH）构建的非官方模块化 Windows 桌面工作台。**
 
 DeepSeek-PA 将本地 DeepSeek Harness 运行时整合为一个连贯、可定制的桌面应用：把日常对话 Chat 与工具型 Agent 工作分开，提供统一的扩展与外观中心，并通过“集群”模块支持可监督的多智能体项目协作。
 
 > DPA 是基于 DeepSeek Harness 构建的独立社区项目，不是 DeepSeek 官方产品，也不会替代上游 DSH 运行时。
 
+> 桌面安装包**尚未内置 DSH**。首次使用需要准备兼容的本地 DSH 运行时和模型凭据，详见[安装指南](docs/INSTALL-WINDOWS.md)。普通用户请下载 Release 中的安装版或便携版，不要把 GitHub 自动生成的源码压缩包当作安装包。
+
 ![DPA 集群项目空间](docs/images/dpa-cluster-room.png)
 
-> 所有截图均使用虚构项目和演示员工数据，不包含个人账号、真实项目、本机路径或任何凭据。
+> 截图均使用虚构项目和演示员工。扩展发现截图中的 **75 项仓库是合成分页测试数据**，不代表真实 GitHub 搜索结果或推荐目录。图片不包含个人账号、真实项目、本机路径或凭据。
+
+## 0.6.0 更新内容
+
+- 扩展发现直接使用公开可见的 GitHub 查询，支持排序、翻页、跳页和每页 30 / 60 / 100 项；DPA 推荐与 GitHub 全站是独立来源。
+- 兼容新版 DSH 凭据和 ACP 启动入口；开始项目前检查配置，启动失败持续显示原因并可重试，避免重复点击造成并发启动。
+- 更新桌面导航、员工卡片、项目讨论、任务面板和输入框；审批内容独立滚动，小窗口下任务面板移到下方，保留讨论空间。
+
+GitHub Search API 每个查询最多允许访问前 **1,000 项**。DPA 会展示总数和接口边界；可细化条件或打开同一 GitHub 搜索。能搜到仓库不等于该仓库兼容 DSH，安装仍需预检。
 
 ## 为什么开发 DPA
 
@@ -20,7 +34,7 @@ DPA 不只是给 DSH 套一个桌面壳，“集群”也只是产品优势之�
 
 - **Agent 与 Chat 分离：** 本地 DSH Agent 负责工具调用和任务执行，普通 DeepSeek Chat 保持独立的对话空间。
 - **模块化能力中心：** 在一个界面中发现和管理插件、Skill、主题、字体、背景、更新、备份以及未来的 DPA 模块。
-- **全程序外观系统：** 主题作用于整个 DPA；可以导入兼容主题、调整字体和缩放，也可以独立使用图片背景而不改变主题配色。
+- **统一的 DPA 外观系统：** 桌面外壳、集群、扩展中心共享主题、字体与背景设置；支持兼容主题导入、字号和缩放。嵌入的上游网页有[单独的适配边界](#外观适用范围)。
 - **可监督的多智能体项目：** 创建可复用员工，组建项目团队，让员工公开讨论、调用工具执行、提交证据，并由用户审批计划和成果。
 - **本地优先与可恢复：** 项目事件、版本、审批、工作轨迹、诊断和恢复数据优先保留在本机。
 
@@ -39,13 +53,19 @@ DPA 不只是给 DSH 套一个桌面壳，“集群”也只是产品优势之�
 
 ### 扩展、Skill 与主题发现
 
-扩展中心统一管理插件、Skill、主题和 MCP 等能力。GitHub 支持匿名浏览，也可以登录账号获得更高查询额度和账号相关功能。
+可用关键词以及 `user:`、`topic:`、`language:` 等条件搜索 GitHub 仓库，选择来源、排序和每页数量，也可打开同条件的 GitHub 页面。公开仓库可直接匿名浏览，无需配置账号。
+
+0.6.0 的账号登录属于可选开发者配置：需要用户自行注册 GitHub OAuth App、启用 Device Flow、设置 `DPA_GITHUB_CLIENT_ID`，然后重启 DPA。当前授权请求包含 `read:user` 与 `repo` scope；其中 `repo` 明显宽于公开浏览，并可能授予私有仓库访问能力。请在 GitHub 授权页核对权限，不需要该能力时保持匿名即可。详见 [Windows 安装指南](docs/INSTALL-WINDOWS.md#可选github-账号登录)。
 
 ![DPA 扩展中心](docs/images/dpa-extension-center.png)
+
+分页界面演示：图中的 `demo-*` 仓库和数量均为合成测试数据，并非实际扩展目录。
 
 ### 员工设计与持续培养
 
 员工不是一次性提示词，而是能够长期维护的智能体身份。用户可以编辑员工配置、记录培养过程、建立候选版本、考核晋升、回退版本、归档员工，并在不同项目中赋予不同职责和等级。
+
+当前培养属于员工配置与提示词发展，尚未实现模型微调和蒸馏。
 
 ![DPA 员工中心](docs/images/dpa-cluster-room-employees.png)
 
@@ -57,11 +77,21 @@ DPA 不只是给 DSH 套一个桌面壳，“集群”也只是产品优势之�
 
 ### 公开讨论与人工审批
 
-项目聊天框只展示用户和员工围绕项目的公开讨论；思考过程、工具调用、电脑操作、任务、决策、遥测和错误诊断进入独立视图。员工的电脑访问权限可以设置为：
+项目聊天框只展示用户和员工围绕项目的公开讨论；工作摘要、工具调用、电脑操作、任务、决策、遥测和错误诊断进入独立视图。DPA 不展示或伪造模型的隐藏思维过程。员工的电脑访问策略可以设置为：
 
 - 逐项请求批准；
 - 风险托管自动执行；
 - 仅在项目工作区内完全访问。
+
+实际隔离边界还取决于所使用的运行时与工具，不能将项目工作目录等同于操作系统级沙箱。
+
+### 外观适用范围
+
+DPA 外壳、集群和扩展中心共享主题、字体与图片背景设置。支持原生主题，以及受支持的 DSH / VS Code 颜色主题转换；导入配色不会复制另一款软件的布局或扩展功能。
+
+![DPA 主题与显示](docs/images/dpa-appearance.png)
+
+嵌入的 DSH Agent 页面保留上游布局，**新版 DSH 的配色注入尚未覆盖全部元素**，可能出现浅色 Agent 与深色外壳并存。远程 DeepSeek Chat 保持网站自身的外观。
 
 ## 集群项目完整流程
 
@@ -79,36 +109,47 @@ DPA 不只是给 DSH 套一个桌面壳，“集群”也只是产品优势之�
 
 DPA 使用原子快照、追加式项目事件、有限前端缓存、幂等更新、损坏状态隔离和崩溃诊断，降低长时间运行、缓存增长或异常中断造成的数据损坏风险。
 
-项目数据和 GitHub 凭据保存在本机；在系统支持时，凭据由操作系统加密。请勿将 `DSH_HOME`、`.credentials.yaml`、用户项目、日志、缓存、`node_modules`、构建产物或 `.dpa-backups` 提交到 GitHub。详见 [安全说明](SECURITY.md) 与 [隐私说明](docs/PRIVACY.md)。
+项目记录保存在本机，模型请求和 GitHub 操作会按所选服务发送相关内容。保存的 GitHub 令牌通过操作系统安全存储加密；系统安全存储不可用时，DPA 拒绝明文保存令牌。请勿将 `DSH_HOME`、`.credentials.yaml`、用户项目、日志、缓存、`node_modules`、构建产物或 `.dpa-backups` 提交到 GitHub。详见 [安全说明](SECURITY.md) 与 [隐私说明](docs/PRIVACY.md)。
 
 ## 当前状态
 
-DPA 目前处于积极开发的预览阶段，源码版本为 `0.5.1`。DeepSeek Harness 本身也在快速迭代，不同候选版本之间可能出现兼容性变化。
+DPA 目前处于积极开发的预览阶段，源码版本为 `0.6.0`，本轮已测试的上游版本为 `DSH 0.1.5-rc.2`。不代表其他 DSH 版本已经验证兼容。
 
 当前重点包括 DSH 版本兼容、安全更新、扩展发现、员工培养、项目治理、全局外观以及长时间高负载运行下的稳定性。
+
+0.6.0 本地验收包含 **98 项回归测试**、六种主题的打包桌面交互、真实 GitHub 分页请求和一次最小真实 ACP 模型请求。没有据此声称完成多日压力测试或所有真实项目的完整交付，详见[公开验收摘要](docs/VALIDATION-v0.6.0.md)。
+
+## 下载与安装
+
+进入 [GitHub Releases](https://github.com/ZPA76/deepseek-pa-dsh-desktop/releases)，选择需要的预览版本，下载 Windows 安装版 `.exe` 或便携版 `.zip`。核对文件名中的版本，并使用 `SHA256SUMS.txt` 校验。如果页面尚无 0.6.0 安装文件，说明该版本尚未公开发布，可按下方步骤从源码运行。
+
+[Windows 安装指南](docs/INSTALL-WINDOWS.md)包含 DSH 准备、凭据目录、首次启动、更新和常见错误。本预览版没有商业代码签名，Windows 可能提示“未知发布者”。
 
 ## 开发环境
 
 - Windows 10/11 x64；
 - Node.js 22+ 与 npm；
-- 本地 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 源码或兼容运行时；
+- 已准备好的本地 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 源码或运行时，以及该版本要求的包管理器（本轮测试使用 pnpm）；
 - 通过环境变量或用户自己的 DSH 凭据文件提供模型认证。
 
 ## 从源码运行
 
 ```powershell
-npm install
+npm ci
 $env:DSH_DESKTOP_HARNESS_DIR = 'C:\path\to\deepseek-harness'
-$env:DSH_DESKTOP_DSH_HOME = "$env:LOCALAPPDATA\DeepSeek-PA\dsh-home"
+$env:DSH_DESKTOP_DSH_HOME = 'C:\path\to\your\configured-dsh-home'
 $env:DSH_DESKTOP_DATA_DIR = "$env:LOCALAPPDATA\DeepSeek-PA\data"
 npm start
 ```
+
+请替换两个示例路径。DSH home 必须指向已配置模型凭据的数据目录；指向空目录时，不会自动继承其他目录里的凭据。
 
 运行语法检查和自动测试：
 
 ```powershell
 npm run check
 npm test
+npm run smoke:bridge
 ```
 
 生成目录版桌面程序：

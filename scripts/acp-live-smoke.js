@@ -3,8 +3,10 @@
 const fs = require('fs')
 const path = require('path')
 const { runAcpTask } = require('../cluster-acp-client')
+const { resolveSmokePaths } = require('./acp-smoke-options')
 
 async function main() {
+  const { harnessDir, dshHome } = resolveSmokePaths()
   const root = path.resolve(process.env.DPA_ACP_SMOKE_ROOT || path.join(process.cwd(), '.tmp-acp-smoke'))
   const workspace = path.join(root, 'workspace')
   const sessionsRoot = path.join(root, 'sessions')
@@ -12,8 +14,8 @@ async function main() {
   const events = []
   const toolMode = process.env.DPA_ACP_SMOKE_TOOL === '1'
   const result = await runAcpTask({
-    harnessDir: process.env.DSH_DESKTOP_HARNESS_DIR || path.join(process.env.DSH_HOME || process.cwd(), 'harness'),
-    dshHome: process.env.DSH_HOME || path.join(process.env.LOCALAPPDATA || process.env.HOME || process.cwd(), 'DeepSeek-PA', 'dsh-home'),
+    harnessDir,
+    dshHome,
     configPath: path.resolve(__dirname, '..', 'dpa.cordis.yml'),
     workspace,
     sessionsRoot,
@@ -40,4 +42,3 @@ main().catch((error) => {
   console.error(error.stack || error)
   process.exit(1)
 })
-

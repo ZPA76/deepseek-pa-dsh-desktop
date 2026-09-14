@@ -63,6 +63,82 @@ function readPackageVersion(harnessDir) {
   return String(pkg.version)
 }
 
+function resolveExportTarget(value) {
+  if (typeof value === 'string') return value
+  if (!value || typeof value !== 'object') return null
+  return value.default || value.require || value.import || value.node || null
+}
+
+function findClientPackageManifests(harnessDir) {
+  const root = path.join(harnessDir, 'packages', 'client')
+  if (!fs.existsSync(root)) return []
+  const manifests = []
+  const visit = (directory) => {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const entryPath = path.join(directory, entry.name)
+      if (entry.isDirectory()) visit(entryPath)
+      else if (entry.isFile() && entry.name === 'package.json') manifests.push(entryPath)
+    }
+  }
+  visit(root)
+  return manifests
+}
+
+function validateBuildArtifacts(harnessDir) {
+  const root = path.resolve(harnessDir)
+  const webEntryCandidates = [
+    path.join(root, 'apps', 'web', 'dist', 'index.html'),
+    path.join(root, 'packages', 'client', 'web', 'lib', 'index.js'),
+  ]
+  const webEntry = webEntryCandidates.find((candidate) => fs.existsSync(candidate) && fs.statSync(candidate).size > 0)
+  if (!webEntry) throw new Error("DSH build artifacts incomplete: web client entry not found; checked " + webEntryCandidates.join(", "))
+
+  const recordPath = path.join(root, '.dsh-build', 'client-build-environment.json')
+  if (fs.existsSync(recordPath)) {
+    let buildRecord
+    try {
+      buildRecord = JSON.parse(fs.readFileSync(recordPath, 'utf8'))
+    } catch (error) {
+      throw new Error('DSH build record is corrupted: ' + recordPath + ' (' + error.message + ')')
+    }
+    const fileCount = Number(buildRecord && buildRecord.artifacts && buildRecord.artifacts.fileCount)
+    if (!Number.isFinite(fileCount) || fileCount <= 0) throw new Error('DSH build record has no client files: ' + recordPath)
+  }
+
+  const required = []
+  for (const manifestPath of findClientPackageManifests(root)) {
+    let manifest
+    try {
+      manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
+    } catch (error) {
+      throw new Error('DSH client package manifest is corrupted: ' + manifestPath + ' (' + error.message + ')')
+    }
+    const clientConfig = manifest && manifest.dsh && manifest.dsh.client
+    const exportTarget = manifest && manifest.exports && manifest.exports['./client']
+    if (!clientConfig || !exportTarget) continue
+    const target = resolveExportTarget(exportTarget)
+    if (!target || !target.startsWith('./')) continue
+    required.push({
+      package: manifest.name || path.basename(path.dirname(manifestPath)),
+      path: path.resolve(path.dirname(manifestPath), target),
+    })
+  }
+  if (!required.length) throw new Error('DSH build artifacts incomplete: no dsh.client package with ./client export found')
+  const missing = required.filter((item) => !fs.existsSync(item.path) || fs.statSync(item.path).size === 0)
+  if (missing.length) {
+    const detail = missing.slice(0, 12).map((item) => item.package + ': ' + item.path).join('\n')
+    const suffix = missing.length > 12 ? '\n... and ' + (missing.length - 12) + ' more' : ''
+    throw new Error('DSH build artifacts incomplete: ' + missing.length + ' client entry files are missing\n' + detail + suffix)
+  }
+  return {
+    harnessDir: root,
+    webEntry,
+    requiredCount: required.length,
+    required: required.map((item) => item.path),
+    buildRecord: fs.existsSync(recordPath) ? recordPath : null,
+  }
+}
+
 function runProcess(command, args, options = {}) {
   const timeoutMs = Number(options.timeoutMs || 120000)
   const usesCmdShim = process.platform === 'win32' && /\.cmd$/i.test(command)
@@ -110,7 +186,116 @@ class DshUpdater {
     this.harnessDir = path.resolve(options.harnessDir)
     this.gitCommand = options.gitCommand || 'git.exe'
     this.pnpmCommand = options.pnpmCommand || (process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm')
+    this.logDir = path.resolve(options.logDir || path.join(this.harnessDir, '.dsh-updater-logs'))
+    this.logFile = path.join(this.logDir, options.logFile || 'dsh-updater.log')
+    this.transactionFile = path.join(this.logDir, options.transactionFile || 'dsh-update-transaction.json')
+    this.logLimit = Number(options.logLimit || 5 * 1024 * 1024)
     this.running = false
+    fs.mkdirSync(this.logDir, { recursive: true })
+  }
+
+  readTransaction() {
+    if (!fs.existsSync(this.transactionFile)) return null
+    let transaction
+    try {
+      transaction = JSON.parse(fs.readFileSync(this.transactionFile, 'utf8'))
+    } catch (error) {
+      throw new Error('DSH update transaction is corrupted: ' + this.transactionFile + ' (' + error.message + ')')
+    }
+    const commit = transaction && transaction.before && transaction.before.commit
+    if (transaction.version !== 1 || !/^[0-9a-f]{40}$/i.test(String(commit || ''))) {
+      throw new Error('DSH update transaction is invalid: ' + this.transactionFile)
+    }
+    return transaction
+  }
+
+  writeTransaction(transaction) {
+    const next = { ...transaction, version: 1, updatedAt: new Date().toISOString() }
+    const temporary = this.transactionFile + '.tmp'
+    fs.mkdirSync(this.logDir, { recursive: true })
+    fs.writeFileSync(temporary, JSON.stringify(next, null, 2), 'utf8')
+    fs.renameSync(temporary, this.transactionFile)
+    return next
+  }
+
+  updateTransaction(transaction, phase, details = {}) {
+    return this.writeTransaction({ ...transaction, ...details, phase })
+  }
+
+  clearTransaction() {
+    fs.rmSync(this.transactionFile, { force: true })
+  }
+
+  async runPnpm(args, onProgress, timeoutMs) {
+    return runProcess(this.pnpmCommand, args, {
+      cwd: this.harnessDir,
+      timeoutMs,
+      onOutput: (output) => this.output(onProgress, output),
+    })
+  }
+
+  async rebuildRuntime(onProgress) {
+    await this.runPnpm(['install', '--frozen-lockfile'], onProgress, 900000)
+    await this.runPnpm(['run', 'clean'], onProgress, 300000)
+    await this.runPnpm(['run', 'build'], onProgress, 1200000)
+  }
+
+  async recoverInterruptedUpdate(onProgress = () => {}) {
+    const transaction = this.readTransaction()
+    if (!transaction) return { recovered: false }
+    if (this.running) throw new Error('DSH update already running')
+    this.running = true
+    this.appendLog('interrupted-update-detected', { transaction })
+    try {
+      this.progress(onProgress, { phase: 'recovery', message: '检测到上次更新未完成，正在恢复 DSH ' + transaction.before.version + '…' })
+      const recovering = this.updateTransaction(transaction, 'recovering', { recoveryStartedAt: new Date().toISOString() })
+      await this.git(['reset', '--hard', recovering.before.commit], {
+        timeoutMs: 120000,
+        onOutput: (output) => this.output(onProgress, output),
+      })
+      await this.rebuildRuntime(onProgress)
+      const restored = await this.inspect()
+      const artifacts = validateBuildArtifacts(this.harnessDir)
+      if (restored.commit !== recovering.before.commit || !restored.clean) {
+        throw new Error('Interrupted update recovery did not restore the recorded clean commit')
+      }
+      this.clearTransaction()
+      this.progress(onProgress, { phase: 'recovery-complete', message: '已恢复 DSH ' + restored.version })
+      this.appendLog('interrupted-update-recovered', { transaction: recovering, restored, artifacts })
+      return { recovered: true, restored, artifacts, requestedTag: recovering.requestedTag }
+    } catch (error) {
+      try {
+        this.updateTransaction(transaction, 'recovery-required', { recoveryError: error.message })
+      } catch (_) {}
+      this.appendLog('interrupted-update-recovery-failed', { transaction, error: error.message })
+      throw error
+    } finally {
+      this.running = false
+    }
+  }
+
+  appendLog(event, details = {}) {
+    try {
+      fs.mkdirSync(this.logDir, { recursive: true })
+      if (fs.existsSync(this.logFile) && fs.statSync(this.logFile).size > this.logLimit) {
+        const rotated = this.logFile + '.1'
+        if (fs.existsSync(rotated)) fs.rmSync(rotated, { force: true })
+        fs.renameSync(this.logFile, rotated)
+      }
+      fs.appendFileSync(this.logFile, JSON.stringify({ timestamp: new Date().toISOString(), event, ...details }) + '\n', 'utf8')
+    } catch (_) {
+      // Logging must never make an update fail.
+    }
+  }
+
+  progress(onProgress, event) {
+    this.appendLog('progress', event)
+    if (typeof onProgress === 'function') onProgress(event)
+  }
+
+  output(onProgress, output) {
+    this.appendLog('process-output', output)
+    if (typeof onProgress === 'function') onProgress(output)
   }
 
   async git(args, options = {}) {
@@ -143,50 +328,98 @@ class DshUpdater {
     })
     const latestTag = latestTagFromLsRemote(stdout)
     if (!latestTag) throw new Error('没有从 DSH 上游读取到有效版本标签')
-    return {
+    const result = {
       ...installed,
       latestTag,
       latestVersion: latestTag.slice(TAG_PREFIX.length),
       updateAvailable: compareVersions(latestTag, installed.version) > 0,
     }
+    this.appendLog('check', result)
+    return result
+
   }
 
   async apply(tag, onProgress = () => {}) {
-    if (this.running) throw new Error('DSH 更新正在进行，请勿重复操作')
-    if (!parseVersion(tag) || !String(tag).startsWith(TAG_PREFIX)) throw new Error(`无效的 DSH 更新标签：${tag}`)
+    if (this.running) throw new Error('DSH update already running')
+    if (!parseVersion(tag) || !String(tag).startsWith(TAG_PREFIX)) throw new Error('Invalid DSH update tag: ' + tag)
     this.running = true
+    let before = null
+    let backupBranch = null
+    let transactionStarted = false
+    let transaction = null
     try {
-      const before = await this.inspect()
-      if (!before.clean) throw new Error('托管 DSH 运行时存在本地修改。为避免覆盖，自动更新已停止。')
+      before = await this.inspect()
+      this.appendLog('start', { requestedTag: tag, before })
+      if (!before.clean) throw new Error('DSH runtime has local changes; update stopped to avoid overwriting them.')
       if (compareVersions(tag, before.version) <= 0) return { updated: false, before, after: before }
 
       const stamp = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14)
-      const backupBranch = `backup/dpa-auto-update-${before.version}-${stamp}`
-      onProgress({ phase: 'backup', message: '正在建立更新回退点…' })
+      backupBranch = 'backup/dpa-auto-update-' + before.version + '-' + stamp
+      this.progress(onProgress, { phase: 'backup', message: 'Creating rollback point...' })
       await this.git(['branch', backupBranch, before.commit])
-
-      onProgress({ phase: 'fetch', message: `正在下载 ${tag}…` })
-      await this.git(['fetch', '--tags', 'origin', tag], { timeoutMs: 180000, onOutput: onProgress })
-      await this.git(['merge', '--ff-only', tag], { timeoutMs: 60000, onOutput: onProgress })
-
-      onProgress({ phase: 'install', message: '正在同步 DSH 依赖…' })
-      await runProcess(this.pnpmCommand, ['install', '--frozen-lockfile'], {
-        cwd: this.harnessDir,
-        timeoutMs: 900000,
-        onOutput: onProgress,
+      transactionStarted = true
+      transaction = this.writeTransaction({
+        status: 'in-progress',
+        phase: 'backup',
+        startedAt: new Date().toISOString(),
+        requestedTag: tag,
+        before,
+        backupBranch,
       })
 
-      onProgress({ phase: 'build', message: '正在构建新版 DSH…' })
-      await runProcess(this.pnpmCommand, ['run', 'build'], {
-        cwd: this.harnessDir,
-        timeoutMs: 1200000,
-        onOutput: onProgress,
-      })
+      this.progress(onProgress, { phase: 'fetch', message: 'Downloading ' + tag + '...' })
+      transaction = this.updateTransaction(transaction, 'fetch')
+      await this.git(['fetch', '--tags', 'origin', tag], { timeoutMs: 180000, onOutput: (output) => this.output(onProgress, output) })
+      transaction = this.updateTransaction(transaction, 'merge')
+      await this.git(['merge', '--ff-only', tag], { timeoutMs: 60000, onOutput: (output) => this.output(onProgress, output) })
 
+      this.progress(onProgress, { phase: 'install', message: 'Installing DSH dependencies...' })
+      transaction = this.updateTransaction(transaction, 'install')
+      await this.runPnpm(['install', '--frozen-lockfile'], onProgress, 900000)
+
+      this.progress(onProgress, { phase: 'build', message: 'Building DSH...' })
+      transaction = this.updateTransaction(transaction, 'clean')
+      await this.runPnpm(['run', 'clean'], onProgress, 300000)
+      transaction = this.updateTransaction(transaction, 'build')
+      await this.runPnpm(['run', 'build'], onProgress, 1200000)
+
+      this.progress(onProgress, { phase: 'validate', message: 'Validating client artifacts...' })
+      transaction = this.updateTransaction(transaction, 'validate')
+      const artifacts = validateBuildArtifacts(this.harnessDir)
       const after = await this.inspect()
-      if (!after.clean) throw new Error('DSH 更新完成后工作区出现未提交文件，请检查构建配置')
-      onProgress({ phase: 'complete', message: `DSH 已更新到 ${after.version}` })
-      return { updated: true, before, after, backupBranch }
+      if (!after.clean) throw new Error('DSH update left uncommitted files in the runtime')
+      this.clearTransaction()
+      this.progress(onProgress, { phase: 'complete', message: 'DSH updated to ' + after.version })
+      this.appendLog('complete', { requestedTag: tag, before, after, backupBranch, artifacts })
+      return { updated: true, before, after, backupBranch, artifacts, logFile: this.logFile }
+    } catch (error) {
+      const originalMessage = error.message
+      let rollback = { attempted: false, ok: false }
+      if (transactionStarted && before) {
+        rollback.attempted = true
+        this.progress(onProgress, { phase: 'rollback', message: 'Update failed; restoring the previous version...' })
+        try {
+          await this.git(['reset', '--hard', before.commit], { timeoutMs: 120000, onOutput: (output) => this.output(onProgress, output) })
+          if (transaction) transaction = this.updateTransaction(transaction, 'rollback')
+          await this.rebuildRuntime(onProgress)
+          const restored = await this.inspect()
+          const artifacts = validateBuildArtifacts(this.harnessDir)
+          rollback = { attempted: true, ok: restored.commit === before.commit && restored.clean, restored, artifacts }
+          if (!rollback.ok) throw new Error('Rollback did not restore a clean worktree')
+          this.clearTransaction()
+          this.progress(onProgress, { phase: 'rollback-complete', message: 'Restored DSH ' + restored.version })
+        } catch (rollbackError) {
+          rollback.error = rollbackError.message
+          try {
+            if (transaction) this.updateTransaction(transaction, 'rollback-required', { rollbackError: rollbackError.message })
+          } catch (_) {}
+          this.progress(onProgress, { phase: 'rollback-error', message: 'Automatic rollback failed: ' + rollbackError.message })
+        }
+      }
+      this.appendLog('failed', { requestedTag: tag, before, backupBranch, originalMessage, rollback })
+      error.message = originalMessage + '\nUpdate log: ' + this.logFile + (rollback.attempted ? '\nRollback: ' + (rollback.ok ? 'succeeded' : 'failed (' + (rollback.error || 'unknown') + ')') : '')
+      error.rollback = rollback
+      throw error
     } finally {
       this.running = false
     }
@@ -200,4 +433,5 @@ module.exports = {
   parseVersion,
   readPackageVersion,
   runProcess,
+  validateBuildArtifacts,
 }

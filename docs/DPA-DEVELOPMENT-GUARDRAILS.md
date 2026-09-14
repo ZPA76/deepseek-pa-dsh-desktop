@@ -13,10 +13,13 @@
 
 ### 每次发布的最小验证命令
 
-`powershell
+```powershell
 npm run check
 npm test
-nnpm run smoke:bridge
-nnpm run dist:dir
-nnpm run verify:dist
-`
+npm run smoke:bridge
+npm run sync:app-src
+npm run dist:dir
+npm run verify:staging
+```
+
+`verify:staging` 只校验尚未晋升的目录构建，不轮换正式 `dist`、不写桌面快捷方式。只有准备更新本机正式桌面版时，才执行 `npm run publish:desktop`，随后使用 `npm run verify:dist` 复核已晋升版本。

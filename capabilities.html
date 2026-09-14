@@ -28,21 +28,36 @@
     </nav>
 
     <section class="view" id="view-market">
+      <div class="section-head"><div><h2>发现你的下一项能力</h2><p>直接搜索 GitHub 仓库，按页浏览；插件、Skill、主题在这里汇合。</p></div></div>
       <div class="market-toolbar">
-        <div class="search-box">
-          <input class="search" id="market-search" placeholder="搜索插件、Skill、主题或作者">
+        <div class="search-box market-searchbar">
+          <input class="search" id="market-search" value="deepseek-harness" aria-label="GitHub 搜索关键词" placeholder="关键词或 GitHub 条件，例如 user:nicepkg、topic:agent-skills">
           <button class="btn primary" id="market-search-button" type="button">搜索 GitHub</button>
         </div>
-        <div class="filters" id="market-filters">
-          <button class="chip active" data-kind="all">全部</button>
-          <button class="chip" data-kind="plugin">插件</button>
-          <button class="chip" data-kind="skill">Skill</button>
-          <button class="chip" data-kind="theme">主题</button>
-          <button class="chip" data-kind="mcp">MCP</button>
+        <div class="market-controls">
+          <label>来源<select id="market-source"><option value="github">GitHub 全站</option><option value="curated">DPA 推荐</option></select></label>
+          <label>排序<select id="market-sort"><option value="best-match">最佳匹配</option><option value="stars">Star 最多</option><option value="updated">最近更新</option><option value="forks">Fork 最多</option></select></label>
+          <label>每页<select id="market-page-size"><option value="30">30 项</option><option value="60">60 项</option><option value="100">100 项</option></select></label>
         </div>
+        <div class="filters" id="market-filters">
+          <button class="chip active" data-kind="all" title="保持输入的 GitHub 查询，不追加关键词">全部</button>
+          <button class="chip" data-kind="plugin" title="向查询追加 plugin 关键词">插件</button>
+          <button class="chip" data-kind="skill" title="向查询追加 skill 关键词">Skill</button>
+          <button class="chip" data-kind="theme" title="向查询追加 theme 关键词">主题</button>
+          <button class="chip" data-kind="mcp" title="向查询追加 mcp 关键词">MCP</button>
+        </div>
+        <p class="field-hint" id="market-query-hint">支持 GitHub 搜索语法。选择“全部”保持原始查询；分类按钮会追加对应关键词。</p>
       </div>
-      <div class="notice" id="market-notice">先展示经过整理的推荐项目；输入关键词后再查询 GitHub，避免无意义地频繁请求。</div>
-      <div class="extension-grid" id="extension-grid"></div>
+      <div class="market-summary"><strong id="market-result-summary" role="status" aria-live="polite">准备搜索…</strong><button class="btn" id="market-open-github" type="button">在 GitHub 打开同一搜索 ↗</button></div>
+      <div class="notice" id="market-notice" role="status" aria-live="polite">正在连接 GitHub…</div>
+      <div class="extension-grid" id="extension-grid" aria-busy="false"></div>
+      <nav class="market-pagination" id="market-pagination" aria-label="搜索结果分页">
+        <button class="btn" id="market-prev" type="button" disabled>← 上一页</button>
+        <span id="market-page-label">第 1 页</span>
+        <button class="btn" id="market-next" type="button" disabled>下一页 →</button>
+        <label class="page-jump">跳至 <input id="market-page-input" type="number" min="1" max="1" value="1" aria-label="跳转页码"> 页</label>
+        <button class="btn" id="market-page-go" type="button" disabled>跳转</button>
+      </nav>
     </section>
 
     <section class="view hidden" id="view-installed">

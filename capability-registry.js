@@ -4,6 +4,7 @@
 // 扩展执行仍由 Harness/Cordis 负责；这里负责校验、快照、安装编排和回滚。
 const fs = require('fs')
 const path = require('path')
+const { resolveDpaPaths } = require('./dpa-paths')
 const { BUILTIN_THEMES, createAppearanceService } = require('./appearance-service.js')
 const { createExtensionMarket } = require('./extension-market.js')
 
@@ -70,9 +71,7 @@ function copyTree(source, target) {
 }
 
 function createCapabilityRegistry(options = {}) {
-  const dataDir = path.resolve(options.dataDir || process.env.DSH_DESKTOP_DATA_DIR || path.join(process.env.LOCALAPPDATA || process.env.HOME || process.cwd(), 'DeepSeek-PA', 'data'))
-  const dshHome = path.resolve(options.dshHome || process.env.DSH_DESKTOP_DSH_HOME || path.join(process.env.LOCALAPPDATA || process.env.HOME || process.cwd(), 'DeepSeek-PA', 'dsh-home'))
-  const harnessDir = path.resolve(options.harnessDir || process.env.DSH_DESKTOP_HARNESS_DIR || path.join(process.env.DSH_HOME || process.cwd(), 'harness'))
+  const { dataDir, dshHome, harnessDir } = resolveDpaPaths(options)
   const marketDir = path.join(dataDir, 'market')
   const managedSkillRoot = path.join(dshHome, 'skills', 'dpa-market')
   const appearance = createAppearanceService({ dataDir })

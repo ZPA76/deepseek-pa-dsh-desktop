@@ -3,6 +3,7 @@
 const fs = require('fs')
 const path = require('path')
 const https = require('https')
+const { createHash } = require('crypto')
 const { spawn } = require('child_process')
 
 const CURATED = Object.freeze([
@@ -89,6 +90,21 @@ function run(command, args, options = {}) {
   })
 }
 
+function githubError(status, value = {}, headers = {}) {
+  const original = redact(value.message || `HTTP ${status}`)
+  const limited = status === 429 || (status === 403 && (headers['x-ratelimit-remaining'] === '0' || /rate limit|secondary rate|abuse/i.test(original)))
+  if (limited) {
+    const retryAfter = Number(headers['retry-after'])
+    const resetAt = Number(headers['x-ratelimit-reset']) * 1000
+    const wait = retryAfter > 0 ? Math.ceil(retryAfter) : (resetAt > Date.now() ? Math.ceil((resetAt - Date.now()) / 1000) : 60)
+    return new Error(`GitHub 搜索请求已达限额，请约 ${wait} 秒后重试。匿名搜索限额更低；可连接 GitHub 账号或在 GitHub 网页继续搜索。`)
+  }
+  if (status === 401) return new Error('GitHub 登录已失效，请重新连接账号，或断开后匿名浏览。')
+  if (status === 422) return new Error(`GitHub 无法执行此搜索：请检查关键词、user:/org:/repo: 等条件及账号访问权限；单次搜索最多翻阅前 1,000 项。${original}`)
+  if (status === 403) return new Error(`GitHub 拒绝访问，请检查账号权限或网络出口。${original}`)
+  return new Error(`GitHub 请求失败（${status}）：${original}`)
+}
+
 function githubRequest(pathname, token) {
   return new Promise((resolve, reject) => {
     const request = https.get({
@@ -108,7 +124,7 @@ function githubRequest(pathname, token) {
       response.on('end', () => {
         let value
         try { value = JSON.parse(text || '{}') } catch (_) { value = { message: text } }
-        if ((response.statusCode || 500) >= 400) return reject(new Error(value.message || `GitHub 搜索失败（${response.statusCode}）`))
+        if ((response.statusCode || 500) >= 400) return reject(githubError(response.statusCode, value, response.headers))
         resolve(value)
       })
     })
@@ -126,7 +142,9 @@ function inferKind(repository) {
 }
 
 function mapRepository(repository) {
-  const kind = inferKind(repository)
+  const description = `${repository.full_name || repository.name} ${repository.description || ''} ${(repository.topics || []).join(' ')}`
+  const kind = /plugin|extension|skill|theme|skin|mcp|cordis|插件|扩展|技能|主题|皮肤/i.test(description) ? inferKind(repository) : 'repository'
+  const dshCandidate = /\bdsh\b|deepseek[- ]harness|cordis/i.test(description)
   return {
     id: `github:${repository.full_name}`,
     kind,
@@ -134,7 +152,7 @@ function mapRepository(repository) {
     publisher: repository.owner && repository.owner.login || '',
     description: repository.description || 'GitHub 项目未提供简介',
     sourceUrl: repository.html_url,
-    installSpec: kind === 'plugin' || kind === 'theme' ? `github:${repository.full_name}` : '',
+    installSpec: dshCandidate && (kind === 'plugin' || kind === 'theme') ? `github:${repository.full_name}` : '',
     repo: repository.full_name,
     defaultBranch: repository.default_branch || '',
     verified: 'unverified',
@@ -156,6 +174,10 @@ function createExtensionMarket(options = {}) {
   const processRunner = options.runner || run
   const githubRequester = options.githubRequester || githubRequest
   const skillDownloadRoot = path.join(dataDir, 'skill-downloads')
+  const searchCache = new Map()
+  const pendingSearches = new Map()
+  const now = options.now || Date.now
+  let searchAuthKey = ''
 
   function installedPlugins() {
     const manifests = [
@@ -185,28 +207,62 @@ function createExtensionMarket(options = {}) {
 
   async function search(payload = {}) {
     const query = String(payload.query || '').trim()
-    const kind = String(payload.kind || 'all')
+    const kind = ['plugin', 'skill', 'theme', 'mcp'].includes(payload.kind) ? payload.kind : 'all'
+    const source = payload.source === 'curated' || (!payload.source && !query) ? 'curated' : 'github'
+    const perPage = [30, 60, 100].includes(Number(payload.perPage)) ? Number(payload.perPage) : 30
+    const requestedPage = Math.max(1, Math.floor(Number(payload.page) || 1))
+    const sort = ['stars', 'updated', 'forks'].includes(payload.sort) ? payload.sort : 'best-match'
+    const order = payload.order === 'asc' ? 'asc' : 'desc'
     const installed = installedSpecs()
-    let entries = CURATED.map((item) => ({ ...item, installed: installed.has(item.installSpec) || installed.has(item.id) }))
-    if (query) {
-      const token = githubAuth ? await githubAuth.token() : ''
-      const qualifiers = kind === 'theme'
-        ? `${query} deepseek harness theme`
-        : kind === 'skill'
-          ? `${query} deepseek harness skill`
-          : `${query} deepseek harness`
-      const result = await githubRequester(`/search/repositories?q=${encodeURIComponent(qualifiers)}&sort=stars&order=desc&per_page=24`, token)
-      entries.push(...(result.items || []).map(mapRepository).map((item) => ({ ...item, installed: installed.has(item.installSpec) })))
+    const decorate = (item) => ({ ...item, installed: installed.has(item.installSpec) || installed.has(item.id) })
+    if (source === 'curated') {
+      const needle = query.toLowerCase()
+      const items = CURATED.filter((item) => (kind === 'all' || item.kind === kind) && (!needle || `${item.name} ${item.description} ${item.publisher} ${(item.tags || []).join(' ')}`.toLowerCase().includes(needle)))
+      const totalPages = Math.ceil(items.length / perPage)
+      const page = Math.min(requestedPage, totalPages || 1)
+      return { items:items.slice((page - 1) * perPage, page * perPage).map(decorate), source, query, effectiveQuery:query, page, perPage, totalCount:items.length, accessibleCount:items.length, totalPages, hasNext:page < totalPages, hasPrevious:page > 1, limited:false, incompleteResults:false, cached:false }
     }
-    const needle = query.toLowerCase()
-    const dedup = new Map()
-    for (const item of entries) {
-      if (kind !== 'all' && item.kind !== kind) continue
-      if (!query || `${item.name} ${item.description} ${item.publisher} ${(item.tags || []).join(' ')}`.toLowerCase().includes(needle) || String(item.id).startsWith('github:')) {
-        if (!dedup.has(item.sourceUrl || item.id)) dedup.set(item.sourceUrl || item.id, item)
+    // Category buttons are visible query helpers, never a local filter that drops GitHub matches.
+    const effectiveQuery = `${query}${kind !== 'all' ? ` ${kind}` : ''}`.trim()
+    if (!effectiveQuery) return { items:[], source, query, effectiveQuery, page:1, perPage, totalCount:0, accessibleCount:0, totalPages:0, hasNext:false, hasPrevious:false, limited:false, incompleteResults:false, requiresQuery:true, cached:false }
+    const page = Math.min(requestedPage, Math.ceil(1000 / perPage))
+    const token = githubAuth ? await githubAuth.token() : ''
+    const authKey = createHash('sha256').update(token || 'anonymous').digest('hex')
+    if (authKey !== searchAuthKey) { searchCache.clear(); searchAuthKey = authKey }
+    const cacheKey = JSON.stringify([authKey, effectiveQuery, page, perPage, sort, order])
+    const params = new URLSearchParams({ q:effectiveQuery, page:String(page), per_page:String(perPage) })
+    if (sort !== 'best-match') { params.set('sort', sort); params.set('order', order) }
+    const webParams = new URLSearchParams({ q:effectiveQuery, type:'repositories' })
+    if (sort !== 'best-match') { webParams.set('s', sort); webParams.set('o', order) }
+    let cached = false
+    let result
+    const existing = searchCache.get(cacheKey)
+    if (existing && now() - existing.createdAt < 60000 && !payload.refresh) {
+      result = existing.result
+      cached = true
+    } else {
+      let pending = pendingSearches.get(cacheKey)
+      if (!pending) {
+        pending = githubRequester(`/search/repositories?${params}`, token)
+        pendingSearches.set(cacheKey, pending)
+      }
+      try {
+        result = await pending
+        if (!result || !Array.isArray(result.items)) throw new Error('GitHub 返回了无效的搜索结果，请重试。')
+        if (searchAuthKey === authKey) {
+          searchCache.delete(cacheKey)
+          searchCache.set(cacheKey, { createdAt:now(), result })
+          while (searchCache.size > 20) searchCache.delete(searchCache.keys().next().value)
+        }
+      } finally {
+        if (pendingSearches.get(cacheKey) === pending) pendingSearches.delete(cacheKey)
       }
     }
-    return [...dedup.values()]
+    const totalCount = Math.max(0, Number(result.total_count) || 0)
+    const accessibleCount = Math.min(totalCount, 1000)
+    const totalPages = Math.ceil(accessibleCount / perPage)
+    const items = result.items.slice(0, Math.max(0, Math.min(perPage, 1000 - (page - 1) * perPage))).map(mapRepository).map(decorate)
+    return { items, source, query, effectiveQuery, page, perPage, sort, order, totalCount, accessibleCount, totalPages, hasNext:page < totalPages, hasPrevious:page > 1, limited:totalCount > 1000, incompleteResults:Boolean(result.incomplete_results), cached, githubUrl:`https://github.com/search?${webParams}` }
   }
 
   function safeGithubRepo(value) {
@@ -393,4 +449,4 @@ function createExtensionMarket(options = {}) {
   return { search, preflight, mutate, backups, restore, installedPlugins, preflightSkill, downloadSkill, cleanupSkillDownload, curated: () => CURATED.map((item) => ({ ...item })) }
 }
 
-module.exports = { CURATED, createExtensionMarket, inferKind, mapRepository, safePluginSpec }
+module.exports = { CURATED, createExtensionMarket, inferKind, mapRepository, safePluginSpec, githubError }

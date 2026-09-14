@@ -8,8 +8,10 @@ const root = path.resolve(__dirname, '..')
 const destination = path.join(root, 'app-src')
 const files = [
   'main.js',
+  'dpa-paths.js',
   'preload.js',
   'dsh-updater.js',
+  'dsh-web-auth.js',
   'harness-team-adapter.js',
   'cluster-engine.js',
   'cluster-runtime.js',
@@ -31,6 +33,7 @@ const files = [
   'icon.png',
   'icon.ico',
   'dpa.cordis.yml',
+  'dpa-acp.patch.yml',
   'package.json',
 ]
 

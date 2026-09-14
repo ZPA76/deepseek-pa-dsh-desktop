@@ -1,18 +1,15 @@
 'use strict'
 
 const { app, BrowserWindow } = require('electron')
-const fs = require('fs')
 const os = require('os')
 const path = require('path')
 const { BUILTIN_THEMES, DEFAULT_TYPOGRAPHY, typographyCss } = require('../appearance-service.js')
 
-const temporaryData = fs.mkdtempSync(path.join(os.tmpdir(), 'dpa-visual-demo-'))
-app.setPath('userData', temporaryData)
 app.disableHardwareAcceleration()
 
 app.whenReady().then(async () => {
   const window = new BrowserWindow({
-    width: 1680,
+    width: 1440,
     height: 900,
     show: false,
     backgroundColor: '#111214',
@@ -28,7 +25,7 @@ app.whenReady().then(async () => {
     ],
     project: {
       id: 'visual-sample', name: 'DPA 集群模块升级', goal: '建立可观察的多智能体项目空间',
-      mode: 'team', status: 'active', phase: 'planning',
+      mode: 'team', status: 'active', phase: 'planning', displayStatus: 'running',
       members: [
         { agent: 'lead', role: '项目负责人', rank: 1 },
         { agent: 'researcher', role: '研究分析师', rank: 2 },
@@ -53,6 +50,9 @@ app.whenReady().then(async () => {
       { id: '7', seq: 7, type: 'telemetry.usage', timestamp, actor: { id: 'researcher', name: '研究分析师', kind: 'employee' }, text: 'usage', metrics: { inputTokens: 340, outputTokens: 88, cacheReadTokens: 212, totalTokens: 428 } },
     ],
   }
+  for (const event of sample.events) {
+    if (event.type === 'agent.message.completed') event.channel = 'room'
+  }
   await window.webContents.executeJavaScript(`
     state.agents = ${JSON.stringify(sample.agents)};
     state.projects = [${JSON.stringify(sample.project)}];
@@ -60,9 +60,6 @@ app.whenReady().then(async () => {
     state.overview = { project: state.current, ...${JSON.stringify(sample.overview)} };
     state.events = ${JSON.stringify(sample.events)};
     state.runState = { running: true, paused: false, runId: 'visual-run' };
-    setLayoutWidth('projectSidebar', 240, false);
-    setLayoutWidth('roster', 360, false);
-    setLayoutWidth('inspector', 300, false);
     renderProjects(); renderRoom(); showProjectPane('project-room');
   `)
   const requestedTheme = String(process.env.DPA_VISUAL_THEME || '')
@@ -75,24 +72,20 @@ app.whenReady().then(async () => {
   await new Promise((resolve) => setTimeout(resolve, 300))
   const image = await window.webContents.capturePage()
   const output = process.env.DPA_VISUAL_OUTPUT || path.join(os.tmpdir(), 'dpa-cluster-room.png')
-  fs.writeFileSync(output, image.toPNG())
+  require('fs').writeFileSync(output, image.toPNG())
   await window.webContents.executeJavaScript('setView("employees"); renderEmployees();')
   window.showInactive()
   await new Promise((resolve) => setTimeout(resolve, 250))
   const employeeImage = await window.webContents.capturePage()
   const employeeOutput = path.join(path.dirname(output), `${path.basename(output, path.extname(output))}-employees${path.extname(output)}`)
-  fs.writeFileSync(employeeOutput, employeeImage.toPNG())
+  require('fs').writeFileSync(employeeOutput, employeeImage.toPNG())
   await window.webContents.executeJavaScript('setView("projects"); openWizard();')
   await new Promise((resolve) => setTimeout(resolve, 180))
   const wizardImage = await window.webContents.capturePage()
   const wizardOutput = path.join(path.dirname(output), `${path.basename(output, path.extname(output))}-wizard${path.extname(output)}`)
-  fs.writeFileSync(wizardOutput, wizardImage.toPNG())
+  require('fs').writeFileSync(wizardOutput, wizardImage.toPNG())
   console.log(output)
   console.log(employeeOutput)
   console.log(wizardOutput)
   app.quit()
-})
-
-app.on('quit', () => {
-  try { fs.rmSync(temporaryData, { recursive: true, force: true }) } catch (_) {}
 })

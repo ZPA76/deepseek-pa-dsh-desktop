@@ -4,9 +4,12 @@ const fs = require('fs')
 const os = require('os')
 const path = require('path')
 const { runAcpTask } = require('../cluster-acp-client')
+const { resolveSmokePaths } = require('./acp-smoke-options')
+const cleanupAcpSmoke = require('./cleanup-acp-smoke')
 
 async function main() {
-  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'dpa-skill-acp-'))
+  const { harnessDir, dshHome } = resolveSmokePaths()
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'dpa-acp-skill-'))
   const workspace = path.join(temporary, 'workspace')
   const sessionsRoot = path.join(temporary, 'sessions')
   const skillDirectory = path.join(workspace, '.dsh', 'skills', 'dpa-smoke')
@@ -25,8 +28,8 @@ async function main() {
   const tools = []
   try {
     const result = await runAcpTask({
-      harnessDir: process.env.DSH_DESKTOP_HARNESS_DIR || path.join(process.env.DSH_HOME || process.cwd(), 'harness'),
-      dshHome: process.env.DSH_HOME || path.join(process.env.LOCALAPPDATA || process.env.HOME || process.cwd(), 'DeepSeek-PA', 'dsh-home'),
+      harnessDir,
+      dshHome,
       workspace,
       sessionsRoot,
       configPath: path.join(__dirname, '..', 'dpa.cordis.yml'),
@@ -49,11 +52,7 @@ async function main() {
     }))
     if (!result.text.includes('DPA_SKILL_OK') || !tools.includes('skill')) process.exitCode = 1
   } finally {
-    const resolved = path.resolve(temporary)
-    const tempRoot = path.resolve(os.tmpdir())
-    if (resolved.startsWith(tempRoot + path.sep) && path.basename(resolved).startsWith('dpa-skill-acp-')) {
-      fs.rmSync(resolved, { recursive: true, force: true })
-    }
+    cleanupAcpSmoke(temporary)
   }
 }
 
